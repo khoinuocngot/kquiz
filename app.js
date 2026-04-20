@@ -327,7 +327,7 @@ async function incrementDailyCards(count = 1) {
 // ============================================================
 // ROUTER
 // ============================================================
-async function navigate(screen, data) {
+async function __navigateInternal(screen, data) {
   state.currentScreen = screen;
   const app = $('#app');
   if (!app) return;
@@ -337,7 +337,7 @@ async function navigate(screen, data) {
     case 'home': html = await renderHome(); break;
     case 'import': html = renderImport(); break;
     case 'processing': html = renderProcessing(); break;
-    case 'quiz-config': html = renderQuizConfig(); break;
+    case 'quiz-config': html = await renderQuizConfig(); break;
     case 'quiz': html = renderQuiz(); break;
     case 'result': html = renderResult(); break;
     case 'history': html = renderHistory(); break;
@@ -361,6 +361,10 @@ async function navigate(screen, data) {
   app.innerHTML = html;
   attachEventListeners();
   window.scrollTo(0, 0);
+}
+
+function navigate(screen, data) {
+  __navigateInternal(screen, data);
 }
 
 // ============================================================
