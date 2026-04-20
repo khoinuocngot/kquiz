@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Kquiz">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#5B6CFF">
+  <meta name="background-color" content="#F6F8FC">
+  <meta name="description" content="Kquiz - App học quiz thông minh, tạo câu hỏi từ file văn bản, hình ảnh, PDF">
+  <meta name="format-detection" content="telephone=no">
+  <title>Kquiz</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Prevent FOUC and ensure proper mobile display */
+    html, body {
+      background: #F6F8FC;
+      overscroll-behavior: none;
+    }
+    /* iOS safe area */
+    body {
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+    /* Hide browser chrome on iOS standalone */
+    @supports (padding-top: env(safe-area-inset-top)) {
+      html {
+        min-height: 100vh;
+        min-height: -webkit-fill-available;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="toast-container"></div>
+  <script src="app.js"></script>
+</body>
+</html>

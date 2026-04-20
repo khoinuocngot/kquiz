@@ -1,0 +1,125 @@
+<resources>
+    <!-- APP -->
+    <string name="app_name">Kquiz</string>
+
+    <!-- ==================== NHÓM HOME ==================== -->
+    <string name="home_title">Kquiz</string>
+    <string name="home_welcome">Chào mừng bạn!</string>
+    <string name="home_desc">Tạo quiz từ file PDF, DOCX hoặc TXT</string>
+    <string name="home_btn_import">Nhập File Quiz</string>
+    <string name="home_btn_history">Xem Lịch Sử</string>
+    <string name="home_btn_quick_import">Nhập Nhanh</string>
+    <string name="home_btn_study_sets">Bộ Học Của Tôi</string>
+
+    <!-- ==================== NHÓM IMPORT ==================== -->
+    <string name="import_title">Quăng File Vào</string>
+    <string name="import_desc">Tạo quiz từ file nha</string>
+    <string name="import_supported">Hỗ trợ: TXT, PDF, Ảnh (JPG, PNG, WebP)</string>
+    <string name="import_btn_choose">Quăng file vô đây nè</string>
+    <string name="import_empty">Chưa có file nào hết trơn</string>
+    <string name="import_btn_continue">Tiếp nè</string>
+    <string name="import_btn_back">Về sảnh</string>
+    <string name="import_remove_file">Bỏ file này</string>
+    <string name="import_error_format">File này chưa được support nha</string>
+    <string name="import_error_read">File này app đọc chưa nổi</string>
+
+    <!-- ==================== NHÓM PROCESSING ==================== -->
+    <string name="processing_title">Đang Xử Lý</string>
+    <string name="processing_extracting">Đang trích xuất nội dung nè…</string>
+    <string name="processing_success">Trích xuất xong rồi nè!</string>
+    <string name="processing_preview_label">Xem thử nội dung:</string>
+    <string name="processing_btn_next">Qua cấu hình quiz nè</string>
+    <string name="processing_btn_back">Về sảnh</string>
+    <string name="processing_error_no_file">Chưa có file mà bạn ê</string>
+    <string name="processing_error_generic">Ối, app hơi khựng tí</string>
+    <string name="processing_btn_retry">Thử lại nè</string>
+
+    <!-- ==================== NHÓM QUIZ CONFIG ==================== -->
+    <string name="quiz_config_title">Cấu Hình Quiz</string>
+    <string name="quiz_config_file_label">File đang dùng</string>
+    <string name="quiz_config_no_file">Chưa có file nè</string>
+    <string name="quiz_config_no_content">Chưa có nội dung để tạo quiz. Quay lại và chọn lại file nha.</string>
+    <string name="quiz_config_question_count_label">Số câu muốn ôn</string>
+    <string name="quiz_config_difficulty_label">Muốn dễ hay khó đây?</string>
+    <string name="quiz_config_difficulty_easy">Dễ</string>
+    <string name="quiz_config_difficulty_easy_desc">Câu hỏi đơn giản, nhận biết thôi</string>
+    <string name="quiz_config_difficulty_medium">Trung bình</string>
+    <string name="quiz_config_difficulty_medium_desc">Cần hiểu bài mới trả lời được</string>
+    <string name="quiz_config_difficulty_hard">Khó</string>
+    <string name="quiz_config_difficulty_hard_desc">Phân loại nè, đòi hỏi hiểu sâu</string>
+    <string name="quiz_config_type_label">Muốn dạng câu nào nè?</string>
+    <string name="quiz_config_type_note">MVP hiện tại chỉ hỗ trợ: Trắc nghiệm 4 đáp án</string>
+    <string name="quiz_config_type_mc4">Trắc nghiệm 4 đáp án</string>
+    <string name="quiz_config_type_mc4_desc">4 lựa chọn, chỉ 1 đáp án đúng</string>
+    <string name="quiz_config_type_tf">Đúng / Sai</string>
+    <string name="quiz_config_type_tf_desc">Chọn đúng hoặc sai thôi</string>
+    <string name="quiz_config_type_fill">Điền khuyết</string>
+    <string name="quiz_config_type_fill_desc">Nhập đáp án bằng từ ngắn</string>
+    <string name="quiz_config_generation_mode_label">Chế độ sinh câu hỏi</string>
+    <string name="quiz_config_btn_create">Ra đề thôi</string>
+    <string name="quiz_config_btn_back">Quay lại</string>
+
+    <!-- ==================== NHÓM QUIZ LÀM BÀI ==================== -->
+    <string name="quiz_title">Làm Quiz</string>
+    <string name="quiz_loading">Đang ra đề cho bạn đây…</string>
+    <string name="quiz_loading_llm">Đang sinh quiz bằng Local AI…</string>
+    <string name="quiz_loading_llm_fallback">Local AI chưa khả dụng…</string>
+    <string name="quiz_loading_rule_based">Đang sinh quiz bằng rule-based…</string>
+    <string name="quiz_progress">Câu %1$d / %2$d</string>
+    <string name="quiz_answered">Đã trả lời: %1$d</string>
+    <string name="quiz_btn_prev">Trước</string>
+    <string name="quiz_btn_next">Sau</string>
+    <string name="quiz_btn_submit">Chốt đáp án</string>
+    <string name="quiz_btn_submit_now">Chốt đáp án luôn</string>
+    <string name="quiz_btn_retry">Chiến lại</string>
+    <string name="quiz_btn_back">Về sảnh</string>
+    <string name="quiz_error_generic">Không thể tạo quiz nè</string>
+    <string name="quiz_error_no_content">Chưa có nội dung mà bạn ê</string>
+    <string name="quiz_error_retry">Thử lại nè</string>
+
+    <!-- ==================== NHÓM KẾT QUẢ ==================== -->
+    <string name="result_title">Kết Quả Nè</string>
+    <string name="result_score_detail">%1$d / %2$d câu đúng</string>
+    <string name="result_review_label">Soi từng câu nè</string>
+    <string name="result_btn_redo">Chiến lại</string>
+    <string name="result_btn_home">Về sảnh</string>
+
+    <!-- Nhận xét theo score -->
+    <string name="result_comment_0_20">Hơi toang nha, ôn lại đi bạn ê</string>
+    <string name="result_comment_21_40">Chưa ổn lắm, ôn thêm nha</string>
+    <string name="result_comment_41_60">Cũng tạm, mà chưa đã lắm</string>
+    <string name="result_comment_61_80">Ổn áp đó, thêm chút nữa là đỉnh</string>
+    <string name="result_comment_81_100">Quá cháy luôn, đỉnh chóp!</string>
+
+    <!-- Chi tiết câu hỏi -->
+    <string name="result_your_answer">Bạn pick:</string>
+    <string name="result_correct_answer">Đáp án chuẩn là:</string>
+    <string name="result_explanation">Nói dễ hiểu là:</string>
+    <string name="result_question_label">Câu %1$d / %2$d</string>
+
+    <!-- ==================== NHÓM HISTORY ==================== -->
+    <string name="history_title">Lịch Sử Quiz</string>
+    <string name="history_empty_title">Chưa có quiz nào hết nè</string>
+    <string name="history_empty_desc">Làm quiz xong sẽ hiện ở đây nha</string>
+    <string name="history_btn_back">Về sảnh</string>
+    <string name="history_clear_all">Xóa hết</string>
+    <string name="history_delete_item">Xóa bài này</string>
+    <string name="history_clear_dialog_title">Xóa hết lịch sử?</string>
+    <string name="history_clear_dialog_message">Hành động này không thể hoàn tác nha. Xóa hết luôn?</string>
+    <string name="history_clear_confirm">Xóa hết nè</string>
+    <string name="history_cancel">Hủy</string>
+
+    <!-- ==================== NHÓM SNACKBAR / ERROR ==================== -->
+    <string name="error_unsupported_format">File này chưa được support nha</string>
+    <string name="error_cannot_read_file">File này app đọc chưa nổi</string>
+    <string name="error_generic">Ối, app hơi khựng tí</string>
+    <string name="error_no_file">Chưa có file mà bạn ê</string>
+    <string name="error_file_too_large">File nặng quá, app thở không nổi</string>
+    <string name="error_network">Mạng hơi chập cheng rồi</string>
+    <string name="quiz_error_generic_with_detail">Ối, lỗi rồi: %1$s</string>
+
+    <!-- ==================== NHÓM SUCCESS ==================== -->
+    <string name="success_quiz_created">Quiz ra lò rồi nè!</string>
+    <string name="success_file_uploaded">Up file ngon rồi đó!</string>
+    <string name="success_saved">Lưu ngon lành rồi nha</string>
+</resources>

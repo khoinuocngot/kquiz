@@ -1,0 +1,125 @@
+# Kquiz PWA - Deploy lên GitHub Pages
+#
+# Hướng dẫn:
+# 1. Tạo repo mới trên GitHub (https://github.com/new)
+#    - Đặt tên: kquiz
+#    - Chọn Public
+#    - KHONG tick "Add a README"
+# 2. Mở Git Bash / Terminal trong thư mục này, chạy:
+#    git init
+#    git add .
+#    git commit -m "Initial commit"
+#    git remote add origin https://github.com/YOUR_USERNAME/kquiz.git
+#    git push -u origin main
+# 3. Sau khi push xong, vào repo trên GitHub:
+#    Settings > Pages > Source: Deploy from a branch > main > / (root) > Save
+# 4. Chờ 1-2 phút, truy cập: https://YOUR_USERNAME.github.io/kquiz
+
+# Script tự động deploy (chạy 1 lần sau khi đã push lên GitHub):
+# ============================================================================
+
+$ErrorActionPreference = "Stop"
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  Kquiz PWA - GitHub Pages Deploy" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Kiểm tra git
+$gitVersion = git --version 2>$null
+if (-not $gitVersion) {
+    Write-Host "[Lỗi] Git chưa được cài đặt!" -ForegroundColor Red
+    Write-Host "Tải Git tại: https://git-scm.com/download/win" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Sau khi cài Git, chạy lại script này." -ForegroundColor Cyan
+    Read-Host "Nhấn Enter để thoát"
+    exit 1
+}
+Write-Host "[OK] Git: $gitVersion" -ForegroundColor Green
+
+# Kiểm tra git remote
+$remote = git remote get-url origin 2>$null
+if (-not $remote) {
+    Write-Host ""
+    Write-Host "[Cần thiết lập] Chưa có remote origin!" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Bước 1: Tạo repo mới trên GitHub" -ForegroundColor White
+    Write-Host "  Truy cập: https://github.com/new" -ForegroundColor Cyan
+    Write-Host "  - Repository name: kquiz" -ForegroundColor White
+    Write-Host "  - Chọn Public" -ForegroundColor White
+    Write-Host "  - KHÔNG tick Add a README" -ForegroundColor White
+    Write-Host "  - Create repository" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Bước 2: Mở Git Bash trong thư mục này, chạy:" -ForegroundColor White
+    Write-Host '  git init' -ForegroundColor Cyan
+    Write-Host '  git add .' -ForegroundColor Cyan
+    Write-Host '  git commit -m "Kquiz PWA"' -ForegroundColor Cyan
+    Write-Host '  git remote add origin https://github.com/YOUR_USERNAME/kquiz.git' -ForegroundColor Cyan
+    Write-Host '  git push -u origin main' -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Bước 3: Sau khi push, bật GitHub Pages:" -ForegroundColor White
+    Write-Host "  Settings > Pages > Source: Deploy from a branch > main > / (root) > Save" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Bước 4: Sau 1-2 phút, truy cập:" -ForegroundColor White
+    Write-Host "  https://YOUR_USERNAME.github.io/kquiz" -ForegroundColor Cyan
+    Write-Host ""
+    Read-Host "Nhấn Enter để thoát"
+    exit 0
+}
+
+Write-Host "[OK] Remote: $remote" -ForegroundColor Green
+Write-Host ""
+
+# Kiểm tra trạng thái
+Write-Host "[1/4] Kiểm tra thay đổi..." -ForegroundColor White
+git status --porcelain | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "[OK] Không có thay đổi mới" -ForegroundColor Green
+} else {
+    Write-Host "[Thay đổi] Có file mới/chỉnh sửa" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Chạy lệnh commit:" -ForegroundColor White
+    Write-Host '  git add .' -ForegroundColor Cyan
+    Write-Host '  git commit -m "Update"' -ForegroundColor Cyan
+    Write-Host '  git push' -ForegroundColor Cyan
+}
+
+Write-Host ""
+Write-Host "[2/4] Kiểm tra branch..." -ForegroundColor White
+$branch = git branch --show-current
+Write-Host "[OK] Branch hiện tại: $branch" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "[3/4] Kiểm tra GitHub Pages config..." -ForegroundColor White
+Write-Host "Vào: Settings > Pages > Source > Deploy from a branch > main > / (root) > Save" -ForegroundColor Yellow
+Write-Host ""
+
+Write-Host "[4/4] Thông tin truy cập:" -ForegroundColor White
+# Trích username từ remote URL
+if ($remote -match "github\.com[:/](.+?)(?:\.git)?$") {
+    $repoPath = $Matches[1]
+    if ($repoPath -match "^([^/]+)/(.+)") {
+        $username = $Matches[1]
+        $reponame = $Matches[2]
+        $url = "https://$username.github.io/$reponame"
+        Write-Host ""
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host "  Truy cập sau khi deploy:" -ForegroundColor White
+        Write-Host "  $url" -ForegroundColor Cyan
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "- Chờ 1-5 phút để GitHub build" -ForegroundColor Yellow
+        Write-Host "- Nếu chưa thấy, vào Actions tab xem tiến trình" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Cài lên iPhone:" -ForegroundColor White
+        Write-Host "  1. Mở Safari → truy cập URL trên" -ForegroundColor White
+        Write-Host "  2. Nhấn Share → Add to Home Screen" -ForegroundColor White
+        Write-Host "  3. App sẽ nằm trên màn hình chính" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Hoàn tất! Link sẽ hoạt động mãi mãi, không cần bật máy." -ForegroundColor Green
+    }
+}
+
+Write-Host ""
+Write-Host "Script deploy hoàn tất!" -ForegroundColor Green

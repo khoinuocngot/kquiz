@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Teal background matching logo -->
+    <path
+        android:fillColor="#0D7377"
+        android:pathData="M0,0h108v108h-108z" />
+
+    <!-- K letter with Quiz text centered -->
+    <!-- K -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,28v52h10V54l20,26h12L42,54 62,28h-12L30,48V28z" />
+
+    <!-- Q -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M72,54m-12,0a12,10 0,1 1,24 0a12,10 0,1 1,-24 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M78,72l8,8l4,-4l-8,-8z" />
+    <path
+        android:fillColor="#5B6CFF"
+        android:pathData="M72,54m-10,0a10,8 0,1 1,20 0a10,8 0,1 1,-20 0" />
+
+</vector>
