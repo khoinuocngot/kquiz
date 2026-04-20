@@ -1,0 +1,36 @@
+{
+  "name": "Kquiz",
+  "short_name": "Kquiz",
+  "description": "App học quiz thông minh, tạo câu hỏi từ file văn bản, hình ảnh, PDF",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F6F8FC",
+  "theme_color": "#5B6CFF",
+  "lang": "vi",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Tạo quiz mới",
+      "short_name": "Tạo quiz",
+      "description": "Tạo bộ quiz mới từ văn bản",
+      "url": "/?action=create",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
