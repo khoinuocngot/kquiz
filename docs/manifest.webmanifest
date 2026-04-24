@@ -10,6 +10,33 @@
   "theme_color": "#5B6CFF",
   "lang": "vi",
   "categories": ["education", "productivity"],
+  "share_target": {
+    "action": "./share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": [
+            "text/*",
+            "application/pdf",
+            "application/json",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "image/*",
+            ".studyset",
+            ".json",
+            ".txt",
+            ".pdf",
+            ".docx"
+          ]
+        }
+      ]
+    }
+  },
   "icons": [
     {
       "src": "./assets/icon.svg",

@@ -3,7 +3,7 @@
 (() => {
   const DB_NAME = "kquiz_web_full_v1";
   const DB_VERSION = 2;
-  const APP_VERSION = "web-1.3.5";
+  const APP_VERSION = "web-1.3.6";
   const STORE_NAMES = [
     "studySets",
     "flashcards",
@@ -62,6 +62,13 @@
         result: true
       },
       timeoutMs: 15000
+    },
+    reminders: {
+      enabled: false,
+      hour: 20,
+      minute: 0,
+      lastNotifiedDate: "",
+      dailyQuestion: true
     }
   };
 
@@ -128,6 +135,7 @@
     qr: { stream: null, scanning: false },
     processingNext: null,
     testTimer: null,
+    reminderTimer: null,
     adRenderSeq: 0
   };
 
@@ -502,7 +510,8 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
         ...defaultSettings.ads,
         ...(saved.ads || {}),
         placements: { ...defaultSettings.ads.placements, ...((saved.ads || {}).placements || {}) }
-      }
+      },
+      reminders: { ...defaultSettings.reminders, ...(saved.reminders || {}) }
     };
     state.studySets = (await dbGetAll("studySets")).sort(sortStudySets);
     state.cards = await dbGetAll("flashcards");
@@ -644,6 +653,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       "test-result": renderTestResult,
       "review-wrong": renderReviewWrong,
       insights: renderInsights,
+      reminders: renderReminders,
       folders: renderFolders,
       "folder-detail": renderFolderDetail,
       "smart-review": renderSmartReview,
@@ -654,6 +664,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       theme: renderToolsHub,
       audio: renderToolsHub,
       "ai-pro": renderToolsHub,
+      privacy: renderPrivacy,
       about: renderAbout
     };
     const html = (map[route] || renderHome)();
@@ -901,10 +912,21 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
           </div>
         </div>
         <div class="section card pad">
+          <h2>Nhắc học & PWA</h2>
+          <p class="small-text">Bật thông báo nhắc học khi web/app đang có quyền notification. Cài PWA để dùng share target nhận file/text.</p>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn primary" onclick="KQuiz.navigate('reminders')">${icons.history} Nhắc học</button>
+            <button class="btn secondary" onclick="KQuiz.checkPwaShareTarget()">${icons.upload} Kiểm tra share</button>
+          </div>
+        </div>
+        <div class="section card pad">
           <h2>AI Pro endpoint</h2>
           <p class="small-text">Không lưu API key trong frontend. Chỉ nhập URL proxy hợp lệ.</p>
           <input id="aiEndpoint" class="input" value="${escapeHtml(state.settings.aiEndpoint || "")}" placeholder="https://your-worker.workers.dev">
-          <button class="btn primary" style="width:100%;margin-top:12px" onclick="KQuiz.saveAiEndpoint()">Lưu endpoint</button>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn primary" onclick="KQuiz.saveAiEndpoint()">Lưu endpoint</button>
+            <button class="btn secondary" onclick="KQuiz.testAiEndpoint()">Test AI</button>
+          </div>
         </div>
         <div class="section card pad">
           <h2>Rewarded Ads Web</h2>
@@ -934,7 +956,8 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
           </div>
         </div>
         ${adSlotHtml("tools-preview")}
-        <button class="action-card wide" style="width:100%;margin-top:28px" onclick="KQuiz.navigate('about')"><span class="glyph">${icons.info}</span><span><strong>Giới thiệu</strong><span>Thông tin app và ủng hộ KQuiz</span></span></button>
+        <button class="action-card wide" style="width:100%;margin-top:28px" onclick="KQuiz.navigate('privacy')"><span class="glyph">${icons.info}</span><span><strong>Privacy & consent</strong><span>Dữ liệu local, AI proxy, quảng cáo và thông báo</span></span></button>
+        <button class="action-card wide" style="width:100%;margin-top:12px" onclick="KQuiz.navigate('about')"><span class="glyph">${icons.info}</span><span><strong>Giới thiệu</strong><span>Thông tin app và ủng hộ KQuiz</span></span></button>
       </section>
     `;
   }
@@ -1950,20 +1973,63 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   async function generateQuizFromText(text, count = 10, difficulty = "Trung bình", title = "Quiz") {
     if (state.importFile.mode === "AI_PRO" && state.settings.aiEndpoint) {
       try {
-        const response = await fetch(`${state.settings.aiEndpoint.replace(/\/$/, "")}/generate-quiz`, {
+        const endpoint = state.settings.aiEndpoint.replace(/\/$/, "");
+        const response = await fetch(`${endpoint}/generate-quiz`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text, count, difficulty, title })
         });
         if (response.ok) {
           const data = await response.json();
-          if (Array.isArray(data.questions) && data.questions.length) return { questions: data.questions, source: "AI_PRO" };
+          const questions = normalizeAiQuestions(data.questions);
+          if (questions.length) return { questions, source: "AI_PRO" };
+        }
+        const legacy = await fetch(`${endpoint}/v1/import/generate-quiz-ai`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            unlockToken: `web-${Date.now()}`,
+            cleanedText: text,
+            normalizedBlocks: text.split(/\n{2,}/).slice(0, 30),
+            questionCount: count,
+            difficulty,
+            fileName: title,
+            documentType: "WEB_IMPORT",
+            language: "vi"
+          })
+        });
+        if (legacy.ok) {
+          const data = await legacy.json();
+          const questions = normalizeAiQuestions(data.questions);
+          if (questions.length) return { questions, source: "AI_PRO" };
         }
       } catch (error) {
         console.warn("AI Pro fallback", error);
       }
     }
     return { questions: localGenerateQuestions(text, count), source: "LOCAL" };
+  }
+
+  function normalizeAiQuestions(items = []) {
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((item, index) => {
+        const rawChoices = item.choices || item.options || [];
+        const choices = rawChoices.map((choice, choiceIndex) => /^[A-E]\./.test(String(choice)) ? String(choice) : `${String.fromCharCode(65 + choiceIndex)}. ${choice}`);
+        const correctChoiceIndex = Number.isInteger(item.correctChoiceIndex)
+          ? item.correctChoiceIndex
+          : Number.isInteger(item.correctAnswerIndex)
+            ? item.correctAnswerIndex
+            : resolveCorrectIndex(choices, item.answer || item.correctAnswer || "");
+        return {
+          id: item.id || uid("q"),
+          question: normalizeText(item.question || item.prompt || `Câu hỏi ${index + 1}`),
+          choices,
+          correctChoiceIndex: clamp(correctChoiceIndex, 0, Math.max(0, choices.length - 1)),
+          explanation: item.explanation || item.sourceSnippet || ""
+        };
+      })
+      .filter((item) => item.question && item.choices.length >= 2);
   }
 
   function localGenerateQuestions(text, count = 10) {
@@ -3463,6 +3529,36 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     return "Đề thi gọn";
   }
 
+  function renderPrivacy() {
+    const notifications = "Notification" in window ? Notification.permission : "unsupported";
+    return `
+      <section class="screen">
+        ${screenHeader("Privacy", "Dữ liệu local, AI, ads", "", "tools-hub")}
+        <div class="section card pad">
+          <h2>Dữ liệu học tập</h2>
+          <p class="small-text">Bộ học, thẻ, lịch sử, XP, cài đặt và backup được lưu trong IndexedDB trên trình duyệt của bạn. Restore backup chỉ nhập thêm và không xóa dữ liệu cũ.</p>
+        </div>
+        <div class="section card pad">
+          <h2>AI Pro</h2>
+          <p class="small-text">Frontend không nhúng API key. Chỉ khi bạn bật AI Pro và cấu hình endpoint, nội dung file mới được gửi tới proxy bạn nhập để tạo câu hỏi. Nếu proxy lỗi, app fallback local.</p>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn secondary" onclick="KQuiz.navigate('tools-hub')">Cấu hình AI</button>
+            <button class="btn" onclick="KQuiz.testAiEndpoint()">Test endpoint</button>
+          </div>
+        </div>
+        <div class="section card pad">
+          <h2>Quảng cáo</h2>
+          <p class="small-text">AdSense Auto ads hiển thị theo chính sách Google. Pro unlock chỉ dùng Google Ad Manager rewarded thật; app không tự mở khóa bằng click hay impression giả.</p>
+        </div>
+        <div class="section card pad">
+          <h2>Thông báo</h2>
+          <p class="small-text">Trạng thái quyền hiện tại: ${escapeHtml(notifications)}. Nhắc học chỉ hoạt động khi người dùng tự bật quyền Notification.</p>
+          <button class="btn primary" style="width:100%;margin-top:12px" onclick="KQuiz.navigate('reminders')">Cài nhắc học</button>
+        </div>
+      </section>
+    `;
+  }
+
   function renderAbout() {
     return `
       <section class="screen">
@@ -3480,16 +3576,20 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
         <div class="section card pad">
           <h2>Công nghệ</h2>
           <div class="chip-row" style="flex-wrap:wrap;margin-top:12px">
-            ${["IndexedDB","PDF.js","Tesseract.js","pdf-lib","QR Share","PWA","Web Speech"].map((x) => `<span class="chip">${x}</span>`).join("")}
+            ${["IndexedDB","PDF.js","Tesseract.js","pdf-lib","QR Share","PWA Share Target","Notification","Web Speech"].map((x) => `<span class="chip">${x}</span>`).join("")}
           </div>
         </div>
         <div class="section card pad">
           <h2>AI Pro endpoint</h2>
           <p class="small-text">Không lưu API key trong frontend. Nhập URL proxy nếu đã deploy backend hợp lệ.</p>
           <input id="aiEndpoint" class="input" value="${escapeHtml(state.settings.aiEndpoint || "")}" placeholder="https://your-worker.workers.dev">
-          <button class="btn primary" style="width:100%;margin-top:12px" onclick="KQuiz.saveAiEndpoint()">Lưu endpoint</button>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn primary" onclick="KQuiz.saveAiEndpoint()">Lưu endpoint</button>
+            <button class="btn secondary" onclick="KQuiz.testAiEndpoint()">Test AI</button>
+          </div>
         </div>
-        <button class="action-card wide" style="width:100%;margin-top:28px" onclick="KQuiz.showDonate()"><span class="glyph">${icons.qr}</span><span><strong>Ủng hộ KQuiz</strong><span>Mở thông tin MBank và mã QR</span></span></button>
+        <button class="action-card wide" style="width:100%;margin-top:28px" onclick="KQuiz.navigate('privacy')"><span class="glyph">${icons.info}</span><span><strong>Privacy & consent</strong><span>Dữ liệu local, AI proxy, quảng cáo và thông báo</span></span></button>
+        <button class="action-card wide" style="width:100%;margin-top:12px" onclick="KQuiz.showDonate()"><span class="glyph">${icons.qr}</span><span><strong>Ủng hộ KQuiz</strong><span>Mở thông tin MBank và mã QR</span></span></button>
       </section>
     `;
   }
@@ -3506,6 +3606,55 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   async function saveAiEndpoint() {
     await saveSettings({ aiEndpoint: $("#aiEndpoint").value.trim() });
     toast("Đã lưu endpoint.", "success");
+  }
+
+  async function testAiEndpoint() {
+    const endpoint = ($("#aiEndpoint")?.value || state.settings.aiEndpoint || "").trim().replace(/\/$/, "");
+    if (!endpoint) return toast("Chưa nhập AI proxy endpoint.", "warning");
+    try {
+      await saveSettings({ aiEndpoint: endpoint });
+      const health = await fetch(`${endpoint}/health`, { method: "GET" }).catch(() => null);
+      const healthz = health?.ok ? health : await fetch(`${endpoint}/healthz`, { method: "GET" }).catch(() => null);
+      if (healthz?.ok) {
+        toast("AI proxy health check OK.", "success");
+        return;
+      }
+      const response = await fetch(`${endpoint}/generate-quiz`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "KQuiz test endpoint. Đây là nội dung mẫu không chứa dữ liệu riêng tư.",
+          count: 1,
+          difficulty: "Dễ",
+          title: "KQuiz endpoint test"
+        })
+      });
+      let data = null;
+      if (response.ok) data = await response.json();
+      if (!normalizeAiQuestions(data?.questions).length) {
+        const legacy = await fetch(`${endpoint}/v1/import/generate-quiz-ai`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            unlockToken: `web-test-${Date.now()}`,
+            cleanedText: "KQuiz test endpoint. Đây là nội dung mẫu không chứa dữ liệu riêng tư.",
+            normalizedBlocks: [],
+            questionCount: 1,
+            difficulty: "Dễ",
+            fileName: "KQuiz endpoint test",
+            documentType: "WEB_TEST",
+            language: "vi"
+          })
+        });
+        if (!legacy.ok) throw new Error(`HTTP ${response.status}/${legacy.status}`);
+        data = await legacy.json();
+      }
+      if (!normalizeAiQuestions(data.questions).length) throw new Error("Response thiếu questions[]");
+      toast("AI proxy tạo quiz OK.", "success");
+    } catch (error) {
+      console.warn(error);
+      toast("AI proxy chưa sẵn sàng hoặc CORS chưa mở.", "error");
+    }
   }
 
   async function saveAdsSettings() {
@@ -3596,6 +3745,152 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     await saveSettings({ dailyGoal: goal });
     closeModal();
     render();
+  }
+
+  function renderReminders() {
+    const reminders = { ...defaultSettings.reminders, ...(state.settings.reminders || {}) };
+    const supported = "Notification" in window;
+    const permission = supported ? Notification.permission : "unsupported";
+    const card = pickDailyQuestionCard();
+    return `
+      <section class="screen">
+        ${screenHeader("Nhắc học", supported ? `Notification: ${permission}` : "Trình duyệt chưa hỗ trợ", "", "tools-hub")}
+        <div class="hero-card">
+          <h2>Daily Question</h2>
+          <p>${card ? escapeHtml(card.term) : "Tạo thêm bộ học để có câu hỏi nhắc mỗi ngày."}</p>
+          <div class="metric-row">
+            <div class="metric"><strong>${getDueCards().length}</strong><span>đến hạn</span></div>
+            <div class="metric"><strong>${state.settings.dailyGoal}</strong><span>mục tiêu</span></div>
+            <div class="metric"><strong>${computeStudyStreak()}</strong><span>streak</span></div>
+          </div>
+        </div>
+        <div class="section card pad">
+          <h2>Cài nhắc học</h2>
+          <label class="option-card"><input id="reminderEnabled" type="checkbox" ${reminders.enabled ? "checked" : ""}> Bật nhắc học hằng ngày</label>
+          <label class="option-card"><input id="reminderDailyQuestion" type="checkbox" ${reminders.dailyQuestion ? "checked" : ""}> Gửi câu hỏi mẫu trong thông báo</label>
+          <div class="btn-row" style="margin-top:12px">
+            <label class="form-row"><span class="field-label">Giờ</span><input id="reminderHour" class="input" type="number" min="0" max="23" value="${reminders.hour}"></label>
+            <label class="form-row"><span class="field-label">Phút</span><input id="reminderMinute" class="input" type="number" min="0" max="59" value="${reminders.minute}"></label>
+          </div>
+          <div class="btn-row" style="margin-top:14px">
+            <button class="btn primary" onclick="KQuiz.saveReminderSettings()">Lưu nhắc học</button>
+            <button class="btn secondary" onclick="KQuiz.previewReminder()">Gửi thử</button>
+          </div>
+          <p class="small-text" style="margin-top:12px">Web không dùng push server. Nhắc học hoạt động tốt nhất khi KQuiz PWA đã được cài và trình duyệt cho phép notification.</p>
+        </div>
+        <div class="section card pad">
+          <h2>PWA Share Target</h2>
+          <p class="small-text">Sau khi cài KQuiz Web, bạn có thể chia sẻ text, URL hoặc file từ hệ thống vào app. Text sẽ mở Quick Import, file sẽ mở Nhập từ file.</p>
+          <button class="btn secondary" style="width:100%;margin-top:12px" onclick="KQuiz.checkPwaShareTarget()">Kiểm tra trạng thái</button>
+        </div>
+      </section>
+    `;
+  }
+
+  function pickDailyQuestionCard() {
+    return getDueCards()[0] || state.cards.find((card) => card.isStarred) || state.cards[0] || null;
+  }
+
+  async function saveReminderSettings() {
+    const enabled = Boolean($("#reminderEnabled")?.checked);
+    if (enabled && "Notification" in window && Notification.permission === "default") {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        toast("Bạn chưa cấp quyền notification.", "warning");
+      }
+    }
+    const reminders = {
+      ...defaultSettings.reminders,
+      ...(state.settings.reminders || {}),
+      enabled,
+      dailyQuestion: Boolean($("#reminderDailyQuestion")?.checked),
+      hour: clamp(Number($("#reminderHour")?.value || 20), 0, 23),
+      minute: clamp(Number($("#reminderMinute")?.value || 0), 0, 59)
+    };
+    await saveSettings({ reminders });
+    scheduleStudyReminder();
+    toast("Đã lưu nhắc học.", "success");
+    render();
+  }
+
+  async function previewReminder() {
+    const ok = await ensureNotificationPermission();
+    if (!ok) return;
+    await showStudyNotification(true);
+  }
+
+  async function ensureNotificationPermission() {
+    if (!("Notification" in window)) {
+      toast("Trình duyệt này chưa hỗ trợ notification.", "warning");
+      return false;
+    }
+    if (Notification.permission === "granted") return true;
+    if (Notification.permission === "denied") {
+      toast("Notification đang bị chặn trong trình duyệt.", "warning");
+      return false;
+    }
+    const permission = await Notification.requestPermission();
+    return permission === "granted";
+  }
+
+  function scheduleStudyReminder() {
+    if (state.reminderTimer) clearTimeout(state.reminderTimer);
+    state.reminderTimer = null;
+    const reminders = { ...defaultSettings.reminders, ...(state.settings.reminders || {}) };
+    if (!reminders.enabled || !("Notification" in window)) return;
+    const next = new Date();
+    next.setHours(reminders.hour, reminders.minute, 0, 0);
+    if (next.getTime() <= now()) next.setDate(next.getDate() + 1);
+    state.reminderTimer = setTimeout(async () => {
+      await maybeShowStudyReminder(true);
+      scheduleStudyReminder();
+    }, Math.min(next.getTime() - now(), 2147483647));
+  }
+
+  async function maybeShowStudyReminder(force = false) {
+    const reminders = { ...defaultSettings.reminders, ...(state.settings.reminders || {}) };
+    if (!reminders.enabled || !("Notification" in window) || Notification.permission !== "granted") return;
+    const today = todayKey();
+    if (!force && reminders.lastNotifiedDate === today) return;
+    const target = new Date();
+    target.setHours(reminders.hour, reminders.minute, 0, 0);
+    if (!force && now() < target.getTime()) return;
+    await showStudyNotification(false);
+    await saveSettings({ reminders: { ...reminders, lastNotifiedDate: today } });
+  }
+
+  async function showStudyNotification(force = false) {
+    const card = pickDailyQuestionCard();
+    const due = getDueCards().length;
+    const title = force ? "KQuiz test notification" : "KQuiz nhắc học";
+    const body = card && state.settings.reminders?.dailyQuestion
+      ? `${card.term} • ${due} thẻ đến hạn hôm nay`
+      : `${due} thẻ đang đến hạn. Vào Smart Review để ôn nhanh.`;
+    const options = {
+      body,
+      icon: "./assets/icon.svg",
+      badge: "./assets/icon.svg",
+      tag: "kquiz-daily-reminder",
+      data: { url: "./#/smart-review" }
+    };
+    try {
+      if (navigator.serviceWorker?.ready) {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification(title, options);
+      } else {
+        new Notification(title, options);
+      }
+      toast("Đã gửi thông báo nhắc học.", "success");
+    } catch (error) {
+      console.warn(error);
+      toast("Không gửi được notification.", "error");
+    }
+  }
+
+  function checkPwaShareTarget() {
+    const supported = Boolean(navigator.share || navigator.canShare || "serviceWorker" in navigator);
+    const installed = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+    toast(installed ? "KQuiz đang chạy như PWA đã cài." : supported ? "Share target hoạt động sau khi cài KQuiz Web." : "Trình duyệt chưa hỗ trợ share target.", installed ? "success" : "warning");
   }
 
   function speak(text) {
@@ -3854,6 +4149,43 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     }
   }
 
+  async function handleSharedLaunch() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has("share")) return;
+    try {
+      const response = await fetch("./shared-payload", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const files = Array.isArray(payload.files) ? payload.files : [];
+      if (files.length) {
+        state.importFile.file = sharedPayloadFile(files[0]);
+        state.importFile.mode = "FREE";
+        state.importFile.status = "";
+        setHash("import-file");
+        toast(`Đã nhận file chia sẻ: ${state.importFile.file.name}`, "success");
+        return;
+      }
+      const rawText = normalizeText([payload.title, payload.text, payload.url].filter(Boolean).join("\n"));
+      if (rawText) {
+        state.quick.raw = rawText;
+        state.quick.title = payload.title || "Nội dung chia sẻ";
+        state.quick.description = payload.url || "";
+        state.quick.preview = null;
+        setHash("quick-import");
+        toast("Đã nhận nội dung chia sẻ vào Quick Import.", "success");
+      }
+    } catch (error) {
+      console.warn("Share target payload failed", error);
+    }
+  }
+
+  function sharedPayloadFile(item) {
+    const byteString = atob(item.base64 || "");
+    const bytes = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i += 1) bytes[i] = byteString.charCodeAt(i);
+    return new File([bytes], item.name || `kquiz-share-${Date.now()}`, { type: item.type || "application/octet-stream" });
+  }
+
   function downloadBlob(blob, fileName) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -3891,13 +4223,17 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     await initDB();
     await seedIfNeeded();
     await loadAll();
+    await handleSharedLaunch();
     const isLocalPreview = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
     if ("serviceWorker" in navigator && !isLocalPreview) {
       navigator.serviceWorker.register("./sw.js").catch((error) => console.warn("SW register failed", error));
     }
     initMotionEvents();
     window.addEventListener("hashchange", render);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) maybeShowStudyReminder(false); });
     await render();
+    scheduleStudyReminder();
+    maybeShowStudyReminder(false);
   }
 
   window.KQuiz = {
@@ -3909,6 +4245,9 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     testAudio,
     configureDailyGoal,
     setDailyGoal,
+    saveReminderSettings,
+    previewReminder,
+    checkPwaShareTarget,
     setQuickType,
     setQuickPromptType,
     updatePromptQuestionCount,
@@ -3988,6 +4327,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     rateSmart,
     setTheme,
     saveAiEndpoint,
+    testAiEndpoint,
     saveAdsSettings,
     refreshAds,
     confirmRewardedUnlock,
