@@ -1,9 +1,11 @@
-const CACHE_NAME = "kquiz-web-v2";
+const CACHE_NAME = "kquiz-web-v3";
 const CORE_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./modules/app-shell.js",
+  "./modules/ads.js",
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./THIRD_PARTY_NOTICES.md"

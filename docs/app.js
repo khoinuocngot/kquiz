@@ -2,8 +2,8 @@
 
 (() => {
   const DB_NAME = "kquiz_web_full_v1";
-  const DB_VERSION = 1;
-  const APP_VERSION = "web-1.0.0";
+  const DB_VERSION = 2;
+  const APP_VERSION = "web-1.1.0";
   const STORE_NAMES = [
     "studySets",
     "flashcards",
@@ -13,7 +13,8 @@
     "tags",
     "settings",
     "achievements",
-    "unlockSessions"
+    "unlockSessions",
+    "adRewards"
   ];
 
   const CDN = {
@@ -39,7 +40,13 @@
       complete: true,
       select: true
     },
-    aiEndpoint: ""
+    aiEndpoint: "",
+    ads: {
+      enabled: false,
+      networkCode: "",
+      adUnitPath: "",
+      timeoutMs: 15000
+    }
   };
 
   const state = {
@@ -53,6 +60,8 @@
     history: [],
     stats: {},
     achievements: {},
+    adRewards: [],
+    modules: {},
     quick: {
       type: "MULTIPLE_CHOICE",
       termDelimiter: "tab",
@@ -62,6 +71,15 @@
       raw: "",
       preview: null
     },
+    studyFilters: {
+      query: "",
+      sort: "smart",
+      folder: "all",
+      tag: "all"
+    },
+    cardSelection: new Set(),
+    importPreview: null,
+    pendingUnlock: null,
     importFile: {
       mode: "FREE",
       file: null,
@@ -90,7 +108,8 @@
     learn: null,
     test: null,
     qr: { stream: null, scanning: false },
-    processingNext: null
+    processingNext: null,
+    testTimer: null
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -226,13 +245,19 @@
 
   function bottomNav() {
     const route = state.route;
-    const studyActive = ["study-sets", "study-detail", "flashcard", "learn", "learn-result", "test-config", "test", "test-result", "review-wrong", "folders", "folder-detail", "smart-review"].includes(route);
+    const shell = state.modules.shell || {};
+    const hubs = shell.HUBS || [
+      { key: "home", route: "home", label: "Home", icon: "home" },
+      { key: "create", route: "create-hub", label: "Tạo", icon: "plus" },
+      { key: "study", route: "study-hub", label: "Học", icon: "learn" },
+      { key: "review", route: "review-hub", label: "Ôn", icon: "spark" },
+      { key: "tools", route: "tools-hub", label: "Công cụ", icon: "gear" }
+    ];
+    const groups = shell.ROUTE_GROUPS || {};
+    const isActive = (hub) => (groups[hub.key] || [hub.route]).includes(route);
     return `
       <nav class="bottom-nav" aria-label="Dieu huong chinh">
-        <button class="nav-item ${route === "home" ? "active" : ""}" type="button" onclick="KQuiz.navigate('home')">${icons.home}<span>Home</span></button>
-        <button class="nav-item ${studyActive ? "active" : ""}" type="button" onclick="KQuiz.navigate('study-sets')">${icons.cards}<span>Bộ học</span></button>
-        <button class="nav-item ${route === "history" ? "active" : ""}" type="button" onclick="KQuiz.navigate('history')">${icons.history}<span>Lịch sử</span></button>
-        <button class="nav-item ${route === "about" ? "active" : ""}" type="button" onclick="KQuiz.navigate('about')">${icons.info}<span>About</span></button>
+        ${hubs.map((hub) => `<button class="nav-item ${isActive(hub) ? "active" : ""}" type="button" onclick="KQuiz.navigate('${hub.route}')">${icons[hub.icon] || icons.home}<span>${escapeHtml(hub.label)}</span></button>`).join("")}
       </nav>
     `;
   }
@@ -303,6 +328,7 @@
         if (!db.objectStoreNames.contains("settings")) db.createObjectStore("settings", { keyPath: "key" });
         if (!db.objectStoreNames.contains("achievements")) db.createObjectStore("achievements", { keyPath: "id" });
         if (!db.objectStoreNames.contains("unlockSessions")) db.createObjectStore("unlockSessions", { keyPath: "id" });
+        if (!db.objectStoreNames.contains("adRewards")) db.createObjectStore("adRewards", { keyPath: "id" });
       };
     });
   }
@@ -316,6 +342,7 @@
     state.history = (await dbGetAll("quizHistory")).sort((a, b) => b.createdAt - a.createdAt);
     state.stats = Object.fromEntries((await dbGetAll("studyStats")).map((item) => [item.date, item]));
     state.achievements = Object.fromEntries((await dbGetAll("achievements")).map((item) => [item.id, item]));
+    state.adRewards = await dbGetAll("adRewards").catch(() => []);
     document.documentElement.dataset.theme = state.settings.theme === "kquiz_blue" ? "" : state.settings.theme;
   }
 
@@ -346,6 +373,7 @@
       isPinned: false,
       isFavorite: false,
       folderId: null,
+      tags: [],
       createdAt: now(),
       updatedAt: now()
     };
@@ -413,9 +441,17 @@
     await loadAll();
     const route = state.route;
     if (state.qr.stream && route !== "import-studyset") stopQrScanner();
+    if (state.testTimer && route !== "test") {
+      clearInterval(state.testTimer);
+      state.testTimer = null;
+    }
 
     const map = {
       home: renderHome,
+      "create-hub": renderCreateHub,
+      "study-hub": renderStudyHub,
+      "review-hub": renderReviewHub,
+      "tools-hub": renderToolsHub,
       "quick-import": renderQuickImport,
       "import-file": renderImportFile,
       processing: renderProcessing,
@@ -458,7 +494,11 @@
     const cameraInput = $("#cameraInput");
     if (cameraInput) cameraInput.addEventListener("change", handleImportFileInput);
     const search = $("#studySearch");
-    if (search) search.addEventListener("input", () => renderStudySetsIntoList(search.value));
+    if (search) search.addEventListener("input", updateStudyFilters);
+    ["studySort", "studyFolderFilter", "studyTagFilter"].forEach((id) => {
+      const node = $("#" + id);
+      if (node) node.addEventListener("change", updateStudyFilters);
+    });
     const cardSearch = $("#cardSearch");
     if (cardSearch) cardSearch.addEventListener("input", () => renderCardList(cardSearch.value));
     const folderName = $("#folderName");
@@ -470,13 +510,12 @@
     const today = state.stats[todayKey()] || {};
     const needReview = state.cards.filter((card) => card.masteryLevel < 3).length;
     const mastered = state.cards.filter((card) => card.masteryLevel >= 4).length;
-    const reviewed = state.cards.reduce((sum, card) => sum + (card.timesReviewed || 0), 0);
     const xp = state.settings.totalXp || 0;
     const level = Math.floor(xp / 100) + 1;
     const progress = xp % 100;
     const badges = getUnlockedBadges();
     const greeting = getGreeting();
-    const recent = state.studySets.slice(0, 3);
+    const dailyPercent = clamp(Math.round(((today.cardsReviewed || 0) / Math.max(1, state.settings.dailyGoal)) * 100), 0, 100);
 
     return `
       <section class="screen">
@@ -492,8 +531,8 @@
         </div>
 
         <div class="hero-card">
-          <h2>Tạo quiz thông minh từ tài liệu của bạn</h2>
-          <p>Offline-first, có OCR, QR, PDF Pro, Smart Review và bộ học giống app mobile.</p>
+          <h2>Học nhanh. Nhớ lâu.</h2>
+          <p>Dashboard gọn cho tạo bộ học, học, ôn và công cụ giống app Android.</p>
           <div class="metric-row">
             <div class="metric"><strong>${state.studySets.length}</strong><span>bộ học</span></div>
             <div class="metric"><strong>${totalCards}</strong><span>thẻ</span></div>
@@ -502,29 +541,22 @@
         </div>
 
         <div class="section compact">
-          <div class="banner" onclick="KQuiz.navigate('smart-review')">
+          <div class="banner" onclick="KQuiz.navigate('review-hub')">
             <div class="glyph">${icons.spark}</div>
-            <div><strong>${needReview} thẻ cần ôn</strong><span>Smart Review giúp bạn ôn lại thẻ yếu</span></div>
+            <div><strong>${needReview} thẻ cần ôn</strong><span>Smart Review ưu tiên thẻ yếu và bài sai.</span></div>
             <div class="chev">›</div>
           </div>
         </div>
 
         <div class="section compact">
-          <div class="banner info" onclick="KQuiz.navigate('folders')">
-            <div class="glyph">${icons.folder}</div>
-            <div><strong>Tổ chức bộ học</strong><span>Sắp xếp theo thư mục, gắn tag</span></div>
-            <div class="chev">›</div>
-          </div>
-        </div>
-
-        <div class="section compact">
-          <div class="card pad">
+          <div class="card pad daily-widget">
             <div class="section-head">
               <h2>Cấp ${level}</h2>
               <button class="section-link" onclick="KQuiz.configureDailyGoal()">Mục tiêu</button>
             </div>
             <p class="small-text">${progress} / 100 XP • Hôm nay ${today.cardsReviewed || 0} / ${state.settings.dailyGoal} thẻ • ${mastered} thẻ thành thạo</p>
             <div class="progress" style="--value:${progress}%"><span></span></div>
+            <div class="mini-dashboard" style="margin-top:12px"><span>Mục tiêu ngày</span><strong>${dailyPercent}%</strong></div>
           </div>
         </div>
 
@@ -536,26 +568,109 @@
         ` : ""}
 
         <div class="section">
-          <h2>Bắt đầu học nào</h2>
-          <div class="action-grid" style="margin-top:14px">
-            ${actionCard("Nhập nhanh từ văn bản", "Từ văn bản", icons.file, "KQuiz.navigate('quick-import')")}
-            ${actionCard("Nhập từ file", "PDF, TXT, ảnh", icons.upload, "KQuiz.showImportNotice()","secondary")}
-            ${actionCard("Bộ học", "Bộ học của tớ", icons.learn, "KQuiz.navigate('study-sets')","secondary")}
-            ${actionCard("Nhập bộ học", "Từ file .studyset", icons.layers, "KQuiz.navigate('import-studyset')")}
-            ${actionCard("Lịch sử", "Lịch sử quiz", icons.history, "KQuiz.navigate('history')","warning")}
-            ${actionCard("Sao lưu", "Xuất .kquizbackup", icons.download, "KQuiz.exportBackup()")}
-            ${actionCard("Khôi phục dữ liệu", "Nhập .kquizbackup", icons.upload, "document.getElementById('backupInput').click()","wide")}
-            ${actionCard("Smart Scan Pro", "Ghép nhiều ảnh thành PDF", icons.scan, "KQuiz.navigate('smart-scan')","wide secondary")}
+          <h2>Bắt đầu theo chức năng</h2>
+          <div class="action-grid compact-grid" style="margin-top:14px">
+            ${actionCard("Tạo", "Nhập nhanh, file, scan", icons.plus, "KQuiz.navigate('create-hub')")}
+            ${actionCard("Học", "Bộ học, folder, tag", icons.learn, "KQuiz.navigate('study-hub')","secondary")}
+            ${actionCard("Ôn", "Smart Review, test, lịch sử", icons.spark, "KQuiz.navigate('review-hub')","warning")}
+            ${actionCard("Công cụ", "Backup, theme, ads, AI", icons.gear, "KQuiz.navigate('tools-hub')")}
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderCreateHub() {
+    return `
+      <section class="screen">
+        ${screenHeader("Tạo", "Nhập nội dung và tạo quiz", "", "home")}
+        <div class="action-grid">
+          ${actionCard("Nhập nhanh", "Dán văn bản thành bộ học", icons.file, "KQuiz.navigate('quick-import')")}
+          ${actionCard("Nhập từ file", "PDF, TXT, DOCX, ảnh", icons.upload, "KQuiz.showImportNotice()","secondary")}
+          ${actionCard("Smart Scan Pro", "Ghép ảnh thành PDF scan", icons.scan, "KQuiz.navigate('smart-scan')","wide warning")}
+          ${actionCard("Nhập bộ học", ".studyset, JSON hoặc QR", icons.qr, "KQuiz.navigate('import-studyset')","wide secondary")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderStudyHub() {
+    const recent = state.studySets.slice(0, 3);
+    return `
+      <section class="screen">
+        ${screenHeader("Học", `${state.studySets.length} bộ • ${state.cards.length} thẻ`, `<button class="icon-btn" onclick="KQuiz.navigate('folders')">${icons.folder}</button>`, "home")}
+        <div class="action-grid compact-grid">
+          ${actionCard("Bộ học", "Tìm, lọc, sắp xếp", icons.learn, "KQuiz.navigate('study-sets')","secondary")}
+          ${actionCard("Thư mục", "Tổ chức bộ học", icons.folder, "KQuiz.navigate('folders')")}
+          ${actionCard("Trộn test", "Chọn nhiều bộ học", icons.layers, "KQuiz.showMixedTestModal()","wide warning")}
+          ${actionCard("Tạo mới", "Quick Import", icons.plus, "KQuiz.navigate('quick-import')","wide")}
+        </div>
+        ${recent.length ? `<div class="section"><div class="section-head"><h2>Gần đây</h2><button class="section-link" onclick="KQuiz.navigate('study-sets')">Xem tất cả</button></div><div class="list">${recent.map(renderStudySetCard).join("")}</div></div>` : ""}
+      </section>
+    `;
+  }
+
+  function renderReviewHub() {
+    const needReview = state.cards.filter((card) => card.masteryLevel < 3).length;
+    const weakSets = state.studySets.filter((set) => getCardsForSet(set.id).some((card) => card.masteryLevel < 3)).slice(0, 3);
+    return `
+      <section class="screen">
+        ${screenHeader("Ôn", `${needReview} thẻ ưu tiên`, "", "home")}
+        <div class="action-grid compact-grid">
+          ${actionCard("Smart Review", "Ôn thẻ yếu trước", icons.spark, "KQuiz.navigate('smart-review')","warning")}
+          ${actionCard("Lịch sử", "Xem kết quả quiz", icons.history, "KQuiz.navigate('history')")}
+          ${actionCard("Test bộ học", "Vào danh sách để chọn bộ", icons.test, "KQuiz.navigate('study-sets')","wide secondary")}
+        </div>
+        ${weakSets.length ? `<div class="section"><div class="section-head"><h2>Bộ cần ôn</h2></div><div class="list">${weakSets.map(renderStudySetCard).join("")}</div></div>` : `<div class="section empty-state card"><div><strong>Chưa có thẻ yếu</strong><span>Làm test hoặc học flashcard để tạo dữ liệu ôn.</span></div></div>`}
+      </section>
+    `;
+  }
+
+  function renderToolsHub() {
+    const ads = state.settings.ads || defaultSettings.ads;
+    const adReady = ads.enabled && (ads.adUnitPath || ads.networkCode);
+    return `
+      <section class="screen">
+        ${screenHeader("Công cụ", "Backup, theme, ads, AI", "", "home")}
+        <div class="section card pad">
+          <h2>Dữ liệu</h2>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn secondary" onclick="KQuiz.exportBackup()">${icons.download} Sao lưu</button>
+            <button class="btn secondary" onclick="document.getElementById('backupInput').click()">${icons.upload} Khôi phục</button>
           </div>
           <input id="backupInput" class="hidden" type="file" accept=".kquizbackup,.json,application/json">
         </div>
-
-        ${recent.length ? `
-          <div class="section">
-            <div class="section-head"><h2>Gần đây</h2><button class="section-link" onclick="KQuiz.navigate('study-sets')">Xem tất cả</button></div>
-            <div class="list">${recent.map(renderStudySetCard).join("")}</div>
+        <div class="section card pad">
+          <h2>Theme màu nhẹ</h2>
+          <div class="chip-row" style="margin-top:12px">
+            ${themeChip("kquiz_blue","Xanh KQuiz")}
+            ${themeChip("mint","Mint")}
+            ${themeChip("lavender","Lavender")}
+            ${themeChip("peach","Peach")}
           </div>
-        ` : ""}
+        </div>
+        <div class="section card pad">
+          <h2>Âm thanh & mục tiêu</h2>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn" onclick="KQuiz.showAudioSettings()">${icons.volume} Âm thanh</button>
+            <button class="btn" onclick="KQuiz.configureDailyGoal()">Mục tiêu</button>
+          </div>
+        </div>
+        <div class="section card pad">
+          <h2>AI Pro endpoint</h2>
+          <p class="small-text">Không lưu API key trong frontend. Chỉ nhập URL proxy hợp lệ.</p>
+          <input id="aiEndpoint" class="input" value="${escapeHtml(state.settings.aiEndpoint || "")}" placeholder="https://your-worker.workers.dev">
+          <button class="btn primary" style="width:100%;margin-top:12px" onclick="KQuiz.saveAiEndpoint()">Lưu endpoint</button>
+        </div>
+        <div class="section card pad">
+          <h2>Rewarded Ads Web</h2>
+          <p class="small-text">${adReady ? "Đã có cấu hình Ad Manager. Pro chỉ mở sau khi nhận reward." : "Chưa có ad unit. Pro sẽ không unlock cho tới khi cấu hình Ad Manager."}</p>
+          <label class="option-card"><input id="adsEnabled" type="checkbox" ${ads.enabled ? "checked" : ""}> Bật Google Ad Manager rewarded</label>
+          <label class="form-row"><span class="field-label">Network code</span><input id="adsNetworkCode" class="input" value="${escapeHtml(ads.networkCode || "")}" placeholder="1234567"></label>
+          <label class="form-row"><span class="field-label">Ad unit path</span><input id="adsAdUnitPath" class="input" value="${escapeHtml(ads.adUnitPath || "")}" placeholder="/1234567/kquiz_rewarded"></label>
+          <button class="btn primary" style="width:100%;margin-top:12px" onclick="KQuiz.saveAdsSettings()">Lưu ads</button>
+        </div>
+        <button class="action-card wide" style="width:100%;margin-top:28px" onclick="KQuiz.navigate('about')"><span class="glyph">${icons.info}</span><span><strong>Giới thiệu</strong><span>Thông tin app và ủng hộ KQuiz</span></span></button>
       </section>
     `;
   }
@@ -598,7 +713,7 @@
       <section class="screen no-bottom">
         <form id="quickForm">
           <div class="top-row">
-            <button class="btn" type="button" onclick="KQuiz.navigate('home')">Hủy</button>
+            <button class="btn" type="button" onclick="KQuiz.navigate('create-hub')">Hủy</button>
             <button id="quickCreateBtn" class="btn primary" type="button" onclick="KQuiz.createStudySetFromQuick()">Tạo bộ học luôn</button>
           </div>
           <div class="chip-row" style="justify-content:center;margin-top:-8px">
@@ -657,7 +772,7 @@
   }
 
   function select(name, value, options) {
-    return `<select class="select" name="${name}">${options.map(([v, label]) => `<option value="${v}" ${value === v ? "selected" : ""}>${label}</option>`).join("")}</select>`;
+    return `<select id="${name}" class="select" name="${name}">${options.map(([v, label]) => `<option value="${v}" ${value === v ? "selected" : ""}>${label}</option>`).join("")}</select>`;
   }
 
   function syncQuickForm() {
@@ -781,6 +896,7 @@
       isPinned: false,
       isFavorite: false,
       folderId: null,
+      tags: [],
       createdAt: now(),
       updatedAt: now()
     };
@@ -802,11 +918,19 @@
 
   function renderStudySets() {
     const totalCards = state.cards.length;
+    const tags = getAllTags();
     return `
       <section class="screen">
-        ${screenHeader("Bộ học của tớ", `${state.studySets.length} bộ • ${totalCards} thẻ`, `<button class="icon-btn" onclick="KQuiz.navigate('folders')">${icons.menu}</button>`)}
-        <div class="form-row">
-          <input id="studySearch" class="input" placeholder="Tìm bộ học..." autocomplete="off">
+        ${screenHeader("Bộ học của tớ", `${state.studySets.length} bộ • ${totalCards} thẻ`, `<button class="icon-btn" onclick="KQuiz.navigate('folders')">${icons.menu}</button>`, "study-hub")}
+        <div class="filter-panel card pad">
+          <div class="form-row">
+            <input id="studySearch" class="input" placeholder="Tìm bộ học..." autocomplete="off" value="${escapeHtml(state.studyFilters.query)}">
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <label class="form-row"><span class="field-label">Sắp xếp</span>${select("studySort", state.studyFilters.sort, [["smart","Ghim + mới nhất"],["updated","Mới cập nhật"],["title","A-Z"],["cards","Nhiều thẻ"]])}</label>
+            <label class="form-row"><span class="field-label">Thư mục</span>${select("studyFolderFilter", state.studyFilters.folder, [["all","Tất cả"],["root","Chưa phân loại"],...state.folders.map((folder) => [folder.id, folder.name])])}</label>
+          </div>
+          <label class="form-row" style="margin-top:12px"><span class="field-label">Tag</span>${select("studyTagFilter", state.studyFilters.tag, [["all","Tất cả"], ...tags.map((tag) => [tag, `#${tag}`])])}</label>
         </div>
         <div class="btn-row" style="margin-top:14px">
           <button class="btn secondary" onclick="KQuiz.showMixedTestModal()">${icons.layers} Trộn nhiều bộ học</button>
@@ -818,13 +942,43 @@
   }
 
   function renderStudySetList(query = "") {
-    const q = normalizeText(query).toLowerCase();
-    const sets = state.studySets.filter((set) => !q || `${set.title} ${set.description}`.toLowerCase().includes(q));
-    return sets.length ? sets.map(renderStudySetCard).join("") : `<div class="empty-state card"><div><strong>Chưa có bộ học</strong><span>Tạo bộ học mới hoặc import file .studyset.</span></div></div>`;
+    const filters = { ...state.studyFilters, query: query || state.studyFilters.query };
+    const q = normalizeText(filters.query).toLowerCase();
+    let sets = state.studySets.filter((set) => {
+      const haystack = `${set.title} ${set.description} ${(set.tags || []).join(" ")}`.toLowerCase();
+      const folderOk = filters.folder === "all" || (filters.folder === "root" ? !set.folderId : set.folderId === filters.folder);
+      const tagOk = filters.tag === "all" || (set.tags || []).includes(filters.tag);
+      return (!q || haystack.includes(q)) && folderOk && tagOk;
+    });
+    sets = sortStudySetList(sets, filters.sort);
+    return sets.length ? sets.map(renderStudySetCard).join("") : `<div class="empty-state card"><div><strong>Chưa có bộ học phù hợp</strong><span>Thử đổi bộ lọc hoặc tạo bộ học mới.</span></div></div>`;
   }
 
-  function renderStudySetsIntoList(query) {
-    $("#studyList").innerHTML = renderStudySetList(query);
+  function renderStudySetsIntoList(query = state.studyFilters.query) {
+    const list = $("#studyList");
+    if (list) list.innerHTML = renderStudySetList(query);
+  }
+
+  function updateStudyFilters() {
+    state.studyFilters = {
+      query: $("#studySearch")?.value || "",
+      sort: $("#studySort")?.value || "smart",
+      folder: $("#studyFolderFilter")?.value || "all",
+      tag: $("#studyTagFilter")?.value || "all"
+    };
+    renderStudySetsIntoList();
+  }
+
+  function sortStudySetList(sets, mode) {
+    const copy = [...sets];
+    if (mode === "title") return copy.sort((a, b) => a.title.localeCompare(b.title, "vi"));
+    if (mode === "cards") return copy.sort((a, b) => getCardsForSet(b.id).length - getCardsForSet(a.id).length);
+    if (mode === "updated") return copy.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    return copy.sort(sortStudySets);
+  }
+
+  function getAllTags() {
+    return [...new Set(state.studySets.flatMap((set) => set.tags || []))].filter(Boolean).sort((a, b) => a.localeCompare(b, "vi"));
   }
 
   function renderStudySetCard(set) {
@@ -836,6 +990,7 @@
           <div>
             <h3>${escapeHtml(set.title)}</h3>
             <p>${escapeHtml(set.description || "Bộ học mẫu để thử flashcard, học và kiểm tra.")}</p>
+            ${(set.tags || []).length ? `<div class="chip-row inline-tags">${set.tags.map((tag) => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
           </div>
           <div class="card-actions" onclick="event.stopPropagation()">
             <button class="mini-btn ${set.isPinned ? "primary" : ""}" onclick="KQuiz.toggleSet('${set.id}','isPinned')">${icons.pin}</button>
@@ -899,6 +1054,7 @@
     const set = getSet(state.params.id);
     if (!set) return notFound("Không tìm thấy bộ học", "study-sets");
     const cards = getCardsForSet(set.id);
+    state.cardSelection = new Set([...state.cardSelection].filter((id) => cards.some((card) => card.id === id)));
     const mastered = cards.filter((card) => card.masteryLevel >= 4).length;
     const need = cards.filter((card) => card.masteryLevel < 3).length;
     const mastery = cards.length ? Math.round(mastered / cards.length * 100) : 0;
@@ -932,6 +1088,15 @@
         <div class="section">
           <input id="cardSearch" class="input" placeholder="Tìm trong bộ học...">
         </div>
+        <div class="section compact">
+          <div class="bulk-toolbar card pad">
+            <span><strong id="selectedCardCount">${state.cardSelection.size}</strong> thẻ đang chọn</span>
+            <div class="actions-inline">
+              <button class="btn secondary" onclick="KQuiz.selectAllCards('${set.id}')">Chọn tất cả</button>
+              <button class="btn danger" onclick="KQuiz.bulkDeleteSelectedCards('${set.id}')">${icons.trash} Xóa chọn</button>
+            </div>
+          </div>
+        </div>
         <div class="section">
           <div class="section-head">
             <h2>Xem trước thẻ (${cards.length})</h2>
@@ -949,12 +1114,14 @@
     const q = normalizeText(query).toLowerCase();
     const cards = getCardsForSet(set.id).filter((card) => !q || `${card.term} ${card.definition}`.toLowerCase().includes(q));
     $("#cardList").innerHTML = renderCardListHtml(cards);
+    updateSelectedCardCount();
   }
 
   function renderCardListHtml(cards) {
     return cards.length ? cards.map((card) => `
       <article class="flash-row">
         <div class="study-card-head">
+          <label class="card-check"><input type="checkbox" ${state.cardSelection.has(card.id) ? "checked" : ""} onchange="KQuiz.toggleCardSelection('${card.id}')"></label>
           <div>
             <h3>${escapeHtml(card.term)}</h3>
             <p>${escapeHtml(card.definition)}</p>
@@ -968,6 +1135,33 @@
       </article>`).join("") : `<div class="empty-state card"><div><strong>Chưa có thẻ</strong><span>Thêm thẻ mới để bắt đầu học.</span></div></div>`;
   }
 
+  function toggleCardSelection(cardId) {
+    if (state.cardSelection.has(cardId)) state.cardSelection.delete(cardId);
+    else state.cardSelection.add(cardId);
+    updateSelectedCardCount();
+  }
+
+  function updateSelectedCardCount() {
+    const node = $("#selectedCardCount");
+    if (node) node.textContent = String(state.cardSelection.size);
+  }
+
+  function selectAllCards(setId) {
+    getCardsForSet(setId).forEach((card) => state.cardSelection.add(card.id));
+    render();
+  }
+
+  async function bulkDeleteSelectedCards(setId) {
+    const ids = [...state.cardSelection];
+    if (!ids.length) return toast("Chưa chọn thẻ nào.", "warning");
+    if (!confirm(`Xóa ${ids.length} thẻ đã chọn?`)) return;
+    for (const id of ids) await dbDelete("flashcards", id);
+    state.cardSelection.clear();
+    await refreshSetCount(setId);
+    toast("Đã xóa thẻ đã chọn.", "success");
+    render();
+  }
+
   function showSetMenu(id) {
     openModal(`
       <h2>Tùy chọn bộ học</h2>
@@ -975,9 +1169,38 @@
         <button class="btn" onclick="KQuiz.closeModal();KQuiz.renameSet('${id}')">${icons.edit} Đổi tên</button>
         <button class="btn" onclick="KQuiz.closeModal();KQuiz.duplicateSet('${id}')">${icons.copy} Nhân bản</button>
         <button class="btn" onclick="KQuiz.closeModal();KQuiz.assignFolder('${id}')">${icons.folder} Chuyển thư mục</button>
+        <button class="btn" onclick="KQuiz.closeModal();KQuiz.editTags('${id}')">${icons.tag} Gắn tag</button>
         <button class="btn danger" onclick="KQuiz.closeModal();KQuiz.deleteSet('${id}')">${icons.trash} Xóa</button>
       </div>
     `);
+  }
+
+  function editTags(id) {
+    const set = getSet(id);
+    if (!set) return;
+    openModal(`
+      <h2>Gắn tag</h2>
+      <p>Nhập tag cách nhau bằng dấu phẩy để lọc bộ học nhanh hơn.</p>
+      <input id="tagEditor" class="input" value="${escapeHtml((set.tags || []).join(", "))}" placeholder="english, exam, unit-1">
+      <div class="btn-row" style="margin-top:16px">
+        <button class="btn" onclick="KQuiz.closeModal()">Hủy</button>
+        <button class="btn primary" onclick="KQuiz.saveSetTags('${id}')">Lưu tag</button>
+      </div>
+    `);
+  }
+
+  async function saveSetTags(id) {
+    const set = await dbGet("studySets", id);
+    if (!set) return;
+    set.tags = ($("#tagEditor")?.value || "")
+      .split(",")
+      .map((tag) => normalizeText(tag).replace(/^#/, ""))
+      .filter(Boolean);
+    set.updatedAt = now();
+    await dbPut("studySets", set);
+    closeModal();
+    toast("Đã lưu tag.", "success");
+    render();
   }
 
   async function editCard(setId, cardId = "") {
@@ -1048,7 +1271,7 @@
   function renderImportFile() {
     return `
       <section class="screen">
-        ${screenHeader("Nhập từ file", "PDF, TXT, Word, ảnh", "", "home")}
+        ${screenHeader("Nhập từ file", "PDF, TXT, Word, ảnh", "", "create-hub")}
         <div class="hero-card">
           <h2>Quăng file vào đây, app lo phần còn lại</h2>
           <p>Hỗ trợ PDF, TXT, Word và ảnh. App sẽ đọc nội dung rồi biến thành bộ câu hỏi.</p>
@@ -1101,8 +1324,85 @@
     render();
   }
 
+  function hasActiveUnlock(feature, targetKey = "") {
+    const key = `${feature}:${targetKey}`;
+    return state.adRewards.some((reward) => reward.key === key && reward.expiresAt > now());
+  }
+
+  async function recordAdReward(feature, targetKey, result) {
+    const key = `${feature}:${targetKey || ""}`;
+    const reward = {
+      id: uid("reward"),
+      key,
+      feature,
+      targetKey: targetKey || "",
+      result,
+      grantedAt: now(),
+      expiresAt: now() + 30 * 60 * 1000
+    };
+    await dbPut("adRewards", reward);
+    await dbPut("unlockSessions", { id: key, feature, targetKey: targetKey || "", unlockedAt: reward.grantedAt, expiresAt: reward.expiresAt });
+    await loadAll();
+  }
+
+  function proTargetKey(feature, payload = {}) {
+    if (feature === "ai_pro" && state.importFile.file) return `${state.importFile.file.name}:${state.importFile.file.size}`;
+    if (feature === "pdf_pro") return payload.setId || "";
+    if (feature === "review_wrong") return state.test?.setId || "";
+    return "";
+  }
+
+  async function requireProUnlock(feature, label, action, payload = {}) {
+    const targetKey = proTargetKey(feature, payload);
+    if (hasActiveUnlock(feature, targetKey)) {
+      await action();
+      return true;
+    }
+    const featureInfo = state.modules.shell?.PRO_FEATURES?.[feature] || { label, description: "" };
+    state.pendingUnlock = { feature, label: featureInfo.label || label, targetKey, action };
+    openModal(`
+      <h2>${escapeHtml(featureInfo.label || label)}</h2>
+      <p>${escapeHtml(featureInfo.description || "Tính năng Pro yêu cầu xem quảng cáo có tặng thưởng.")}</p>
+      <div class="card pad" style="background:var(--info-soft);box-shadow:none">
+        Pro chỉ mở khi Google Ad Manager gửi sự kiện reward. Nếu quảng cáo không sẵn sàng hoặc bạn đóng quảng cáo, tính năng sẽ không được mở.
+      </div>
+      <div class="btn-row" style="margin-top:16px">
+        <button class="btn" onclick="KQuiz.closeModal()">Để sau</button>
+        <button class="btn primary" onclick="KQuiz.confirmRewardedUnlock()">Xem quảng cáo</button>
+      </div>
+    `);
+    return false;
+  }
+
+  async function confirmRewardedUnlock() {
+    const pending = state.pendingUnlock;
+    if (!pending) return;
+    const adsConfig = state.settings.ads || defaultSettings.ads;
+    try {
+      const { requestRewardedAd } = await import("./modules/ads.js");
+      toast("Đang gọi quảng cáo rewarded...", "warning");
+      const result = await requestRewardedAd(adsConfig, { feature: pending.feature, targetKey: pending.targetKey });
+      if (!result.granted) {
+        toast(result.reason === "missing-config" ? "Chưa cấu hình Ad Manager rewarded." : "Chưa nhận reward, tính năng chưa mở.", "warning");
+        return;
+      }
+      await recordAdReward(pending.feature, pending.targetKey, result);
+      closeModal();
+      const action = pending.action;
+      state.pendingUnlock = null;
+      toast("Đã mở khóa Pro cho phiên này.", "success");
+      await action();
+    } catch (error) {
+      console.error(error);
+      toast("Không tải được quảng cáo rewarded.", "error");
+    }
+  }
+
   async function processSelectedFile() {
     if (!state.importFile.file) return;
+    if (state.importFile.mode === "AI_PRO" && !hasActiveUnlock("ai_pro", proTargetKey("ai_pro"))) {
+      return requireProUnlock("ai_pro", "AI Pro", () => processSelectedFile());
+    }
     state.processingNext = async () => {
       const file = state.importFile.file;
       const text = await extractTextFromFile(file, state.importFile.mode);
@@ -1284,6 +1584,7 @@
       isPinned: false,
       isFavorite: false,
       folderId: null,
+      tags: [],
       createdAt: now(),
       updatedAt: now()
     };
@@ -1382,7 +1683,7 @@
     if (!result) return notFound("Chưa có kết quả", "home");
     return `
       <section class="screen">
-        ${screenHeader("Kết quả quiz", state.quiz.title || "", "", "home")}
+        ${screenHeader("Kết quả quiz", state.quiz.title || "", "", "create-hub")}
         <div class="section">
           <div class="score-ring" style="--score:${result.percent}%"><div class="score-ring-inner"><div><strong>${result.percent}%</strong><br><span class="small-text">${result.correct}/${result.total} đúng</span></div></div></div>
         </div>
@@ -1414,7 +1715,7 @@
   function renderHistory() {
     return `
       <section class="screen">
-        ${screenHeader("Lịch sử", `${state.history.length} bài`, `<button class="icon-btn" onclick="KQuiz.clearHistory()">${icons.trash}</button>`)}
+        ${screenHeader("Lịch sử", `${state.history.length} bài`, `<button class="icon-btn" onclick="KQuiz.clearHistory()">${icons.trash}</button>`, "review-hub")}
         <div class="list">
           ${state.history.length ? state.history.map((item) => `
             <article class="history-card">
@@ -1592,6 +1893,7 @@
           <label class="form-row"><span class="field-label">Nguồn câu hỏi</span>${select("testSource", state.quizConfig.source, [["all","Tất cả"],["starred","Đã ghim"],["review","Cần ôn"],["weak","Chưa thành thạo"]])}</label>
           <label class="form-row"><span class="field-label">Số câu hỏi</span><input id="testCount" class="input" type="number" min="1" max="${cards.length}" value="${Math.min(state.quizConfig.count, cards.length || 1)}"></label>
           <label class="form-row"><span class="field-label">Loại câu hỏi</span>${select("testDirection", state.quizConfig.direction, [["front_to_back","Hỏi -> Đáp"],["back_to_front","Đáp -> Hỏi"],["mixed","Hỗn hợp"]])}</label>
+          <label class="form-row"><span class="field-label">Thời gian (phút)</span><input id="testTimerMinutes" class="input" type="number" min="0" max="180" value="${state.quizConfig.timerMinutes || 0}" placeholder="0 = không giới hạn"></label>
           <label class="option-card"><input id="testShuffle" type="checkbox" ${state.quizConfig.shuffle ? "checked" : ""}> Xáo trộn câu hỏi</label>
           <label class="option-card"><input id="testAuto" type="checkbox" ${state.quizConfig.autoSubmit ? "checked" : ""}> Tự động nộp khi hết giờ</label>
           <button class="btn primary" onclick="KQuiz.startTestSession('${setId}','${mixed.join(",")}')">Bắt đầu kiểm tra</button>
@@ -1612,6 +1914,8 @@
     state.quizConfig.source = source;
     state.quizConfig.direction = $("[name='testDirection']").value;
     state.quizConfig.shuffle = $("#testShuffle").checked;
+    state.quizConfig.timerMinutes = clamp(Number($("#testTimerMinutes").value || 0), 0, 180);
+    state.quizConfig.autoSubmit = $("#testAuto").checked;
     state.test = {
       setId,
       mixed,
@@ -1619,7 +1923,9 @@
       questions: [],
       index: 0,
       answers: {},
-      startedAt: now()
+      startedAt: now(),
+      timerMinutes: state.quizConfig.timerMinutes,
+      autoSubmit: state.quizConfig.autoSubmit
     };
     state.test.questions = state.test.cards.map((card) => cardToQuestion(card));
     navigate("test", { id: setId, mixed: mixed.join(",") });
@@ -1628,9 +1934,10 @@
   function renderTest() {
     const test = state.test;
     if (!test?.questions?.length) return notFound("Chưa có bài kiểm tra", "study-sets");
+    ensureTestTimer();
     return renderQuestionScreen({
       title: "Màn làm bài",
-      subtitle: `${test.index + 1}/${test.questions.length}`,
+      subtitle: `${test.index + 1}/${test.questions.length}${test.timerMinutes ? " • " + formatRemainingTime(getTestRemainingMs()) : ""}`,
       back: `test-config?id=${test.setId}`,
       questions: test.questions,
       index: test.index,
@@ -1642,6 +1949,35 @@
       onSubmit: "KQuiz.submitTest",
       question: test.questions[test.index]
     });
+  }
+
+  function getTestRemainingMs() {
+    const test = state.test;
+    if (!test?.timerMinutes) return 0;
+    return Math.max(0, test.startedAt + test.timerMinutes * 60 * 1000 - now());
+  }
+
+  function formatRemainingTime(ms) {
+    const total = Math.ceil(ms / 1000);
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function ensureTestTimer() {
+    const test = state.test;
+    if (!test?.timerMinutes || state.testTimer) return;
+    state.testTimer = setInterval(() => {
+      const remaining = getTestRemainingMs();
+      const subtitle = $(".screen-title small");
+      if (subtitle) subtitle.textContent = `${test.index + 1}/${test.questions.length} • ${formatRemainingTime(remaining)}`;
+      if (remaining <= 0) {
+        clearInterval(state.testTimer);
+        state.testTimer = null;
+        if (test.autoSubmit) submitTest();
+        else toast("Đã hết giờ. Bạn vẫn có thể nộp thủ công.", "warning");
+      }
+    }, 1000);
   }
 
   function selectTestAnswer(idx) { state.test.answers[state.test.index] = idx; play("select"); render(); }
@@ -1699,6 +2035,10 @@
   }
 
   function startReviewWrong() {
+    return requireProUnlock("review_wrong", "Ôn sai siêu tốc Pro", () => startReviewWrongUnlocked());
+  }
+
+  function startReviewWrongUnlocked() {
     const wrong = state.test.questions
       .map((q, i) => ({ q, i }))
       .filter(({ q, i }) => state.test.answers[i] !== q.correctChoiceIndex)
@@ -1722,6 +2062,11 @@
     card.masteryLevel = clamp((card.masteryLevel || 0) + delta, 0, 5);
     card.lastReviewedAt = now();
     await dbPut("flashcards", card);
+    const date = todayKey();
+    const stat = (await dbGet("studyStats", date)) || { date, cardsReviewed: 0, correct: 0 };
+    stat.cardsReviewed = (stat.cardsReviewed || 0) + 1;
+    if (correct) stat.correct = (stat.correct || 0) + 1;
+    await dbPut("studyStats", stat);
   }
 
   async function addDailyProgress(count) {
@@ -1773,7 +2118,7 @@
   function renderFolders() {
     return `
       <section class="screen">
-        ${screenHeader("Tổ chức bộ học", `${state.folders.length} thư mục`, `<button class="icon-btn" onclick="KQuiz.showCreateFolder()">${icons.plus}</button>`)}
+        ${screenHeader("Tổ chức bộ học", `${state.folders.length} thư mục`, `<button class="icon-btn" onclick="KQuiz.showCreateFolder()">${icons.plus}</button>`, "study-hub")}
         <div class="list">
           <article class="folder-card" onclick="KQuiz.navigate('folder-detail',{id:'root'})"><h3>Chưa phân loại</h3><p>${state.studySets.filter((s) => !s.folderId).length} bộ học</p></article>
           ${state.folders.map((folder) => `<article class="folder-card" onclick="KQuiz.navigate('folder-detail',{id:'${folder.id}'})"><div class="study-card-head"><div><h3>${escapeHtml(folder.name)}</h3><p>${state.studySets.filter((s) => s.folderId === folder.id).length} bộ học</p></div><button class="mini-btn danger" onclick="event.stopPropagation();KQuiz.deleteFolder('${folder.id}')">${icons.trash}</button></div></article>`).join("")}
@@ -1843,7 +2188,7 @@
     }
     return `
       <section class="screen">
-        ${screenHeader("Smart Review", `${cards.length} thẻ ưu tiên`, "", "home")}
+        ${screenHeader("Smart Review", `${cards.length} thẻ ưu tiên`, "", "review-hub")}
         ${cards.length ? `
           <div class="flashcard-stage">
             <div class="flashcard ${state.flash.flipped ? "flipped" : ""}" onclick="KQuiz.flipFlashcard()">
@@ -1873,14 +2218,26 @@
   }
 
   function renderImportStudySet() {
+    const preview = state.importPreview;
     return `
       <section class="screen">
-        ${screenHeader("Nhập bộ học", ".studyset, .json hoặc QR", "", "home")}
+        ${screenHeader("Nhập bộ học", ".studyset, .json hoặc QR", "", "create-hub")}
         <div class="action-grid">
           ${actionCard("Chọn file", ".studyset / .json", icons.upload, "document.getElementById('importStudyInput').click()","wide")}
           ${actionCard("Quét QR", "Camera", icons.qr, "KQuiz.startQrScanner()","wide secondary")}
         </div>
         <input id="importStudyInput" class="hidden" type="file" accept=".studyset,.json,application/json">
+        ${preview ? `
+          <div class="section card pad">
+            <h2>Preview import</h2>
+            <p><strong>${escapeHtml(preview.title)}</strong></p>
+            <p class="small-text">${preview.cardCount} thẻ • ${escapeHtml(preview.description || "Không có mô tả")}</p>
+            <div class="btn-row" style="margin-top:14px">
+              <button class="btn" onclick="KQuiz.clearImportPreview()">Hủy</button>
+              <button class="btn primary" onclick="KQuiz.confirmImportStudySet()">Nhập vào app</button>
+            </div>
+          </div>
+        ` : ""}
         <div id="qrScanner" class="section hidden">
           <div class="canvas-box"><video id="qrVideo" autoplay playsinline></video><canvas id="qrCanvas" class="hidden"></canvas></div>
           <button class="btn danger" style="width:100%;margin-top:12px" onclick="KQuiz.stopQrScanner()">Dừng quét</button>
@@ -1900,13 +2257,29 @@
     try {
       const payload = parseQrPayload(text);
       const data = JSON.parse(payload);
-      const imported = await saveImportedStudySet(data);
-      toast("Import bộ học thành công.", "success");
-      navigate("study-detail", { id: imported.id });
+      const setInfo = data.studySet || data;
+      const cardsInfo = data.flashcards || data.cards || [];
+      if (!setInfo.title || !cardsInfo.length) throw new Error("Invalid study set");
+      state.importPreview = { data, title: setInfo.title, description: setInfo.description || "", cardCount: cardsInfo.length };
+      toast("Đã đọc file/QR. Kiểm tra preview rồi nhập.", "success");
+      render();
     } catch (error) {
       console.error(error);
       toast("File/QR không hợp lệ.", "error");
     }
+  }
+
+  function clearImportPreview() {
+    state.importPreview = null;
+    render();
+  }
+
+  async function confirmImportStudySet() {
+    if (!state.importPreview?.data) return;
+    const imported = await saveImportedStudySet(state.importPreview.data);
+    state.importPreview = null;
+    toast("Import bộ học thành công.", "success");
+    navigate("study-detail", { id: imported.id });
   }
 
   function parseQrPayload(text) {
@@ -1931,6 +2304,7 @@
       isPinned: false,
       isFavorite: false,
       folderId: null,
+      tags: setInfo.tags || [],
       createdAt: now(),
       updatedAt: now()
     };
@@ -1985,7 +2359,7 @@
         sourceFileName: set.sourceFileName || "",
         studySetType: set.studySetType || "TERM_DEFINITION",
         createdAt: set.createdAt || now(),
-        tags: []
+        tags: set.tags || []
       },
       flashcards: cards.map((card) => ({
         term: card.term,
@@ -2075,7 +2449,7 @@
   function renderSmartScan() {
     return `
       <section class="screen">
-        ${screenHeader("Smart Scan Pro", "Tạo PDF scan từ nhiều ảnh", "", "home")}
+        ${screenHeader("Smart Scan Pro", "Tạo PDF scan từ nhiều ảnh", "", "create-hub")}
         <div class="hero-card"><h2>Màn hình scan tài liệu nhiều ảnh</h2><p>Chọn nhiều ảnh, giữ màu hoặc tăng tương phản trắng đen để OCR đọc tốt hơn.</p></div>
         <div class="section card pad">
           <h2>Bước 1: Chọn ảnh</h2>
@@ -2118,6 +2492,9 @@
 
   async function buildSmartScanPdf() {
     if (!state.smartScan.files.length) return;
+    if (!hasActiveUnlock("smart_scan", "")) {
+      return requireProUnlock("smart_scan", "Smart Scan Pro", () => buildSmartScanPdf());
+    }
     await loadScript(CDN.pdfLib);
     const pdf = await window.PDFLib.PDFDocument.create();
     for (const file of state.smartScan.files) {
@@ -2187,6 +2564,9 @@
   }
 
   async function exportExamPdf(setId, mode) {
+    if (!hasActiveUnlock("pdf_pro", setId)) {
+      return requireProUnlock("pdf_pro", "PDF Pro", () => exportExamPdf(setId, mode), { setId });
+    }
     closeModal();
     await loadScript(CDN.pdfLib);
     const set = getSet(setId);
@@ -2219,7 +2599,7 @@
   function renderAbout() {
     return `
       <section class="screen">
-        ${screenHeader("Giới thiệu", "KQuiz Web ${APP_VERSION}", "", "home")}
+        ${screenHeader("Giới thiệu", "KQuiz Web ${APP_VERSION}", "", "tools-hub")}
         <div class="hero-card"><h2>KQuiz</h2><p>App học quiz thông minh, offline-first, tạo câu hỏi từ file, ảnh, PDF và bộ học.</p></div>
         <div class="section card pad">
           <h2>Theme màu nhẹ</h2>
@@ -2259,6 +2639,18 @@
   async function saveAiEndpoint() {
     await saveSettings({ aiEndpoint: $("#aiEndpoint").value.trim() });
     toast("Đã lưu endpoint.", "success");
+  }
+
+  async function saveAdsSettings() {
+    const ads = {
+      enabled: Boolean($("#adsEnabled")?.checked),
+      networkCode: normalizeText($("#adsNetworkCode")?.value || ""),
+      adUnitPath: normalizeText($("#adsAdUnitPath")?.value || ""),
+      timeoutMs: 15000
+    };
+    await saveSettings({ ads });
+    toast("Đã lưu cấu hình rewarded ads.", "success");
+    render();
   }
 
   function showDonate() {
@@ -2362,8 +2754,10 @@
       flashcards: state.cards,
       quizHistory: state.history,
       folders: state.folders,
+      tags: getAllTags(),
       settings: state.settings,
-      achievements: Object.values(state.achievements)
+      achievements: Object.values(state.achievements),
+      adRewards: state.adRewards
     };
     downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }), `kquiz-${Date.now()}.kquizbackup`);
   }
@@ -2376,6 +2770,7 @@
     for (const card of data.flashcards || []) await dbPut("flashcards", { ...card, id: card.id || uid("card") });
     for (const item of data.quizHistory || []) await dbPut("quizHistory", { ...item, id: item.id || uid("hist") });
     for (const folder of data.folders || []) await dbPut("folders", { ...folder, id: folder.id || uid("folder") });
+    for (const reward of data.adRewards || []) await dbPut("adRewards", { ...reward, id: reward.id || uid("reward") });
     if (data.settings) await saveSettings({ ...state.settings, ...data.settings });
     toast("Đã khôi phục dữ liệu, không xóa dữ liệu cũ.", "success");
     render();
@@ -2414,6 +2809,7 @@
   }
 
   async function init() {
+    state.modules.shell = await import("./modules/app-shell.js");
     await initDB();
     await seedIfNeeded();
     await loadAll();
@@ -2484,6 +2880,8 @@
     copyText,
     startQrScanner,
     stopQrScanner,
+    clearImportPreview,
+    confirmImportStudySet,
     setSmartScanMode,
     buildSmartScanPdf,
     saveSmartScanPdf,
@@ -2495,9 +2893,16 @@
     deleteFolder,
     assignFolder,
     setFolder,
+    editTags,
+    saveSetTags,
+    toggleCardSelection,
+    selectAllCards,
+    bulkDeleteSelectedCards,
     rateSmart,
     setTheme,
     saveAiEndpoint,
+    saveAdsSettings,
+    confirmRewardedUnlock,
     showDonate,
     exportBackup,
     syncQuickForm

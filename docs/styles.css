@@ -369,6 +369,10 @@ a {
   gap: 14px;
 }
 
+.compact-grid .action-card {
+  min-height: 136px;
+}
+
 .action-card {
   min-height: 172px;
   padding: 16px;
@@ -433,6 +437,54 @@ a {
   line-height: 1.25;
 }
 
+.daily-widget {
+  overflow: hidden;
+}
+
+.mini-dashboard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.mini-dashboard span {
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mini-dashboard strong {
+  color: var(--primary);
+  font-size: 18px;
+}
+
+.filter-panel {
+  box-shadow: none;
+}
+
+.inline-tags {
+  margin-top: 10px;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: visible;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .list {
   display: grid;
   gap: 12px;
@@ -483,6 +535,35 @@ a {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bulk-toolbar .actions-inline {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.bulk-toolbar .btn {
+  min-height: 42px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.card-check {
+  align-self: flex-start;
+  padding-top: 4px;
+}
+
+.card-check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
 }
 
 .mini-btn {
@@ -662,7 +743,7 @@ a {
   width: min(100vw, 430px);
   transform: translateX(-50%);
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 2px;
   padding: 8px 12px calc(8px + var(--safe-bottom));
   border-top: 1px solid var(--line);
@@ -679,7 +760,7 @@ a {
   color: var(--text-muted);
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -689,8 +770,8 @@ a {
 }
 
 .nav-item .icon {
-  width: 21px;
-  height: 21px;
+  width: 20px;
+  height: 20px;
 }
 
 .empty-state {

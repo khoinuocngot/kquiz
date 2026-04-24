@@ -20,14 +20,24 @@
   ],
   "shortcuts": [
     {
-      "name": "Tao bo hoc moi",
-      "short_name": "Tao bo hoc",
-      "url": "./#/quick-import"
+      "name": "Tao",
+      "short_name": "Tao",
+      "url": "./#/create-hub"
     },
     {
-      "name": "Bo hoc cua to",
-      "short_name": "Bo hoc",
-      "url": "./#/study-sets"
+      "name": "Hoc",
+      "short_name": "Hoc",
+      "url": "./#/study-hub"
+    },
+    {
+      "name": "On tap",
+      "short_name": "On",
+      "url": "./#/review-hub"
+    },
+    {
+      "name": "Cong cu",
+      "short_name": "Tools",
+      "url": "./#/tools-hub"
     }
   ]
 }

@@ -10,5 +10,7 @@ Optional advanced features lazy-load permissively licensed browser libraries:
 - qrcodejs - MIT - QR code generation.
 - jsQR - Apache-2.0/MIT-distributed ecosystem references - QR scanning from camera/canvas.
 - mammoth.js - BSD-2-Clause - DOCX text extraction.
+- Google Publisher Tag - Google Ad Manager web rewarded ads integration.
 
 The app does not embed private AI keys. AI Pro requires a user-configured proxy endpoint.
+Rewarded ads require a user-configured Google Ad Manager ad unit path; no ad account secret is stored in this frontend.
