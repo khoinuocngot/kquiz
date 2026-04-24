@@ -518,6 +518,73 @@ a {
   font-size: 18px;
 }
 
+.study-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.study-stat-grid > div {
+  min-height: 64px;
+  padding: 11px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.study-stat-grid span,
+.card-meta-row span,
+.heat-day small {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.study-stat-grid strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.card-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.card-meta-row span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+.study-heatmap {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.heat-day {
+  min-height: 58px;
+  padding: 8px 6px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  text-align: center;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) var(--heat), var(--surface-soft)), var(--surface));
+  border: 1px solid var(--line);
+}
+
+.heat-day span {
+  color: var(--text);
+  font-weight: 800;
+}
+
 .filter-panel {
   box-shadow: none;
 }
@@ -782,6 +849,11 @@ a {
 
 .btn-row.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.btn-row.review-scale {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 

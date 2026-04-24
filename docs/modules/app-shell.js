@@ -2,7 +2,7 @@ export const ROUTE_GROUPS = {
   home: ["home"],
   create: ["create-hub", "quick-import", "import-file", "processing", "quiz-config", "quiz", "result", "smart-scan", "import-studyset"],
   study: ["study-hub", "study-sets", "study-detail", "folders", "folder-detail"],
-  review: ["review-hub", "smart-review", "flashcard", "learn", "learn-result", "test-config", "test", "test-result", "review-wrong", "history"],
+  review: ["review-hub", "smart-review", "flashcard", "learn", "learn-result", "test-config", "test", "test-result", "review-wrong", "history", "insights"],
   tools: ["tools-hub", "backup", "settings", "theme", "audio", "ai-pro", "about"]
 };
 

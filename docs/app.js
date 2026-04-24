@@ -3,7 +3,7 @@
 (() => {
   const DB_NAME = "kquiz_web_full_v1";
   const DB_VERSION = 2;
-  const APP_VERSION = "web-1.3.4";
+  const APP_VERSION = "web-1.3.5";
   const STORE_NAMES = [
     "studySets",
     "flashcards",
@@ -220,6 +220,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     home: svg("M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-10.5Z"),
     cards: svg("M5 4h14a2 2 0 0 1 2 2v10H7a2 2 0 0 0-2 2V4Zm0 14a2 2 0 0 0 2 2h14"),
     history: svg("M3 12a9 9 0 1 0 3-6.7M3 4v6h6M12 7v6l4 2"),
+    chart: svg("M4 19V5M4 19h16M8 16v-5M12 16V8M16 16v-9"),
     info: svg("M12 8h.01M11 12h1v4h1M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"),
     volume: svg("M11 5 6 9H3v6h3l5 4V5Zm4 4a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"),
     plus: svg("M12 5v14M5 12h14"),
@@ -283,6 +284,65 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
+  }
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  function startOfDay(value = now()) {
+    const date = new Date(value);
+    date.setHours(0, 0, 0, 0);
+    return date.getTime();
+  }
+
+  function addDays(days, from = now()) {
+    return startOfDay(from) + Math.max(0, days) * DAY_MS;
+  }
+
+  function isCardDue(card, reference = now()) {
+    if (!card) return false;
+    if (!card.lastReviewedAt) return true;
+    if (!card.dueAt) return (card.masteryLevel || 0) < 4;
+    return card.dueAt <= reference;
+  }
+
+  function getDueCards(cards = state.cards, reference = now()) {
+    return cards
+      .filter((card) => isCardDue(card, reference))
+      .sort((a, b) => (a.dueAt || 0) - (b.dueAt || 0) || (a.masteryLevel || 0) - (b.masteryLevel || 0) || (a.lastReviewedAt || 0) - (b.lastReviewedAt || 0));
+  }
+
+  function getCardAccuracy(card) {
+    const reviewed = card.timesReviewed || 0;
+    return reviewed ? Math.round(((card.timesCorrect || 0) / reviewed) * 100) : 0;
+  }
+
+  function getDueLabel(card) {
+    if (!card?.lastReviewedAt) return "Mới";
+    if (!card.dueAt) return "Chưa lên lịch";
+    const diff = Math.ceil((startOfDay(card.dueAt) - startOfDay()) / DAY_MS);
+    if (diff < 0) return `Quá hạn ${Math.abs(diff)} ngày`;
+    if (diff === 0) return "Đến hạn hôm nay";
+    if (diff === 1) return "Ngày mai";
+    return `${diff} ngày nữa`;
+  }
+
+  function computeStudyStreak(stats = state.stats) {
+    let streak = 0;
+    for (let i = 0; i < 365; i += 1) {
+      const key = todayKey(new Date(startOfDay() - i * DAY_MS));
+      if ((stats[key]?.cardsReviewed || 0) <= 0) break;
+      streak += 1;
+    }
+    return streak;
+  }
+
+  function getRecentStudyDays(days = 14) {
+    return Array.from({ length: days }, (_, index) => {
+      const offset = days - 1 - index;
+      const date = new Date(startOfDay() - offset * DAY_MS);
+      const key = todayKey(date);
+      return { key, label: `${date.getDate()}/${date.getMonth() + 1}`, value: state.stats[key]?.cardsReviewed || 0 };
+    });
   }
 
   function shuffle(items) {
@@ -517,6 +577,11 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       timesReviewed: data.timesReviewed || 0,
       timesCorrect: data.timesCorrect || 0,
       lastReviewedAt: data.lastReviewedAt || null,
+      dueAt: data.dueAt || null,
+      intervalDays: data.intervalDays || 0,
+      easeFactor: data.easeFactor || 2.3,
+      lapses: data.lapses || 0,
+      lastGrade: data.lastGrade || null,
       createdAt: data.createdAt || now(),
       position: data.position || 0
     };
@@ -578,6 +643,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       test: renderTest,
       "test-result": renderTestResult,
       "review-wrong": renderReviewWrong,
+      insights: renderInsights,
       folders: renderFolders,
       "folder-detail": renderFolderDetail,
       "smart-review": renderSmartReview,
@@ -666,7 +732,8 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   function renderHome() {
     const totalCards = state.cards.length;
     const today = state.stats[todayKey()] || {};
-    const needReview = state.cards.filter((card) => card.masteryLevel < 3).length;
+    const dueCards = getDueCards();
+    const needReview = dueCards.length;
     const mastered = state.cards.filter((card) => card.masteryLevel >= 4).length;
     const xp = state.settings.totalXp || 0;
     const level = Math.floor(xp / 100) + 1;
@@ -674,6 +741,9 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     const badges = getUnlockedBadges();
     const greeting = getGreeting();
     const dailyPercent = clamp(Math.round(((today.cardsReviewed || 0) / Math.max(1, state.settings.dailyGoal)) * 100), 0, 100);
+    const reviewedCards = state.cards.filter((card) => card.timesReviewed);
+    const accuracy = reviewedCards.length ? Math.round(reviewedCards.reduce((sum, card) => sum + getCardAccuracy(card), 0) / reviewedCards.length) : 0;
+    const streak = computeStudyStreak();
 
     return `
       <section class="screen">
@@ -694,7 +764,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
           <div class="metric-row">
             <div class="metric"><strong>${state.studySets.length}</strong><span>bộ học</span></div>
             <div class="metric"><strong>${totalCards}</strong><span>thẻ</span></div>
-            <div class="metric"><strong>${state.history.length}</strong><span>quiz</span></div>
+            <div class="metric"><strong>${dueCards.length}</strong><span>đến hạn</span></div>
           </div>
         </div>
 
@@ -703,7 +773,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
         <div class="section compact">
           <div class="banner" onclick="KQuiz.navigate('review-hub')">
             <div class="glyph">${icons.spark}</div>
-            <div><strong>${needReview} thẻ cần ôn</strong><span>Smart Review ưu tiên thẻ yếu và bài sai.</span></div>
+            <div><strong>${needReview} thẻ cần ôn</strong><span>Smart Review ưu tiên thẻ đến hạn, thẻ yếu và bài sai.</span></div>
             <div class="chev">›</div>
           </div>
         </div>
@@ -717,6 +787,11 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
             <p class="small-text">${progress} / 100 XP • Hôm nay ${today.cardsReviewed || 0} / ${state.settings.dailyGoal} thẻ • ${mastered} thẻ thành thạo</p>
             <div class="progress" style="--value:${progress}%"><span></span></div>
             <div class="mini-dashboard" style="margin-top:12px"><span>Mục tiêu ngày</span><strong>${dailyPercent}%</strong></div>
+            <div class="study-stat-grid">
+              <div><span>Streak</span><strong>${streak} ngày</strong></div>
+              <div><span>Độ đúng</span><strong>${accuracy}%</strong></div>
+              <div><span>Quiz</span><strong>${state.history.length}</strong></div>
+            </div>
           </div>
         </div>
 
@@ -728,7 +803,10 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
         ` : ""}
 
         <div class="section">
-          <h2>Bắt đầu theo chức năng</h2>
+          <div class="section-head">
+            <h2>Bắt đầu theo chức năng</h2>
+            <button class="section-link" onclick="KQuiz.navigate('insights')">Thống kê</button>
+          </div>
           <div class="action-grid compact-grid" style="margin-top:14px">
             ${actionCard("Tạo", "Nhập nhanh, file, scan", icons.plus, "KQuiz.navigate('create-hub')")}
             ${actionCard("Học", "Bộ học, folder, tag", icons.learn, "KQuiz.navigate('study-hub')","secondary")}
@@ -772,14 +850,16 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   }
 
   function renderReviewHub() {
-    const needReview = state.cards.filter((card) => card.masteryLevel < 3).length;
-    const weakSets = state.studySets.filter((set) => getCardsForSet(set.id).some((card) => card.masteryLevel < 3)).slice(0, 3);
+    const dueCards = getDueCards();
+    const needReview = dueCards.length;
+    const weakSets = state.studySets.filter((set) => getDueCards(getCardsForSet(set.id)).length).slice(0, 3);
     return `
       <section class="screen">
         ${screenHeader("Ôn", `${needReview} thẻ ưu tiên`, "", "home")}
         <div class="action-grid compact-grid">
-          ${actionCard("Smart Review", "Ôn thẻ yếu trước", icons.spark, "KQuiz.navigate('smart-review')","warning")}
+          ${actionCard("Smart Review", "Ôn thẻ đến hạn trước", icons.spark, "KQuiz.navigate('smart-review')","warning")}
           ${actionCard("Lịch sử", "Xem kết quả quiz", icons.history, "KQuiz.navigate('history')")}
+          ${actionCard("Thống kê", "Streak, lịch ôn, độ đúng", icons.chart, "KQuiz.navigate('insights')","secondary")}
           ${actionCard("Test bộ học", "Vào danh sách để chọn bộ", icons.test, "KQuiz.navigate('study-sets')","wide secondary")}
         </div>
         ${adSlotHtml("review-inline")}
@@ -1234,7 +1314,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
             <input id="studySearch" class="input" placeholder="Tìm bộ học..." autocomplete="off" value="${escapeHtml(state.studyFilters.query)}">
           </div>
           <div class="btn-row" style="margin-top:12px">
-            <label class="form-row"><span class="field-label">Sắp xếp</span>${select("studySort", state.studyFilters.sort, [["smart","Ghim + mới nhất"],["updated","Mới cập nhật"],["title","A-Z"],["cards","Nhiều thẻ"]])}</label>
+            <label class="form-row"><span class="field-label">Sắp xếp</span>${select("studySort", state.studyFilters.sort, [["smart","Ghim + mới nhất"],["due","Nhiều thẻ đến hạn"],["updated","Mới cập nhật"],["title","A-Z"],["cards","Nhiều thẻ"]])}</label>
             <label class="form-row"><span class="field-label">Thư mục</span>${select("studyFolderFilter", state.studyFilters.folder, [["all","Tất cả"],["root","Chưa phân loại"],...state.folders.map((folder) => [folder.id, folder.name])])}</label>
           </div>
           <label class="form-row" style="margin-top:12px"><span class="field-label">Tag</span>${select("studyTagFilter", state.studyFilters.tag, [["all","Tất cả"], ...tags.map((tag) => [tag, `#${tag}`])])}</label>
@@ -1280,6 +1360,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     const copy = [...sets];
     if (mode === "title") return copy.sort((a, b) => a.title.localeCompare(b.title, "vi"));
     if (mode === "cards") return copy.sort((a, b) => getCardsForSet(b.id).length - getCardsForSet(a.id).length);
+    if (mode === "due") return copy.sort((a, b) => getDueCards(getCardsForSet(b.id)).length - getDueCards(getCardsForSet(a.id)).length || sortStudySets(a, b));
     if (mode === "updated") return copy.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     return copy.sort(sortStudySets);
   }
@@ -1291,6 +1372,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   function renderStudySetCard(set) {
     const cards = getCardsForSet(set.id);
     const mastery = cards.length ? Math.round(cards.reduce((sum, card) => sum + card.masteryLevel, 0) / (cards.length * 5) * 100) : 0;
+    const dueCount = getDueCards(cards).length;
     return `
       <article class="study-card" onclick="KQuiz.navigate('study-detail',{id:'${set.id}'})">
         <div class="study-card-head">
@@ -1309,7 +1391,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
         </div>
         <div class="study-card-head" style="margin-top:14px">
           <strong>${cards.length} thẻ</strong>
-          <span class="small-text">${formatDate(set.updatedAt)}</span>
+          <span class="small-text">${dueCount ? `${dueCount} đến hạn • ` : ""}${formatDate(set.updatedAt)}</span>
         </div>
         <div class="progress" style="--value:${mastery}%"><span></span></div>
       </article>
@@ -1364,6 +1446,9 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     state.cardSelection = new Set([...state.cardSelection].filter((id) => cards.some((card) => card.id === id)));
     const mastered = cards.filter((card) => card.masteryLevel >= 4).length;
     const need = cards.filter((card) => card.masteryLevel < 3).length;
+    const dueInSet = getDueCards(cards);
+    const reviewedCards = cards.filter((card) => card.timesReviewed);
+    const accuracy = reviewedCards.length ? Math.round(reviewedCards.reduce((sum, card) => sum + getCardAccuracy(card), 0) / reviewedCards.length) : 0;
     const mastery = cards.length ? Math.round(mastered / cards.length * 100) : 0;
     return `
       <section class="screen">
@@ -1373,12 +1458,18 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
           <strong style="color:var(--success)">${mastered} thẻ đã thành thạo</strong>
           <strong style="color:var(--danger)">${need} thẻ cần ôn</strong>
         </div>
+        <div class="study-stat-grid">
+          <div><span>Đến hạn</span><strong>${dueInSet.length}</strong></div>
+          <div><span>Độ đúng</span><strong>${accuracy}%</strong></div>
+          <div><span>Lần ôn</span><strong>${cards.reduce((sum, card) => sum + (card.timesReviewed || 0), 0)}</strong></div>
+        </div>
         <div class="section">
           <h2>Chọn chế độ học</h2>
           <div class="study-modes" style="margin-top:14px">
             <button class="study-mode" onclick="KQuiz.startFlashcard('${set.id}')"><span class="glyph">${icons.layers}</span><strong>Lật thẻ</strong><span class="small-text">Nhấn để lật thẻ</span></button>
             <button class="study-mode secondary" onclick="KQuiz.startLearn('${set.id}')"><span class="glyph">${icons.learn}</span><strong>Luyện hỏi</strong><span class="small-text">Luyện học</span></button>
             <button class="study-mode warning" onclick="KQuiz.navigate('test-config',{id:'${set.id}'})"><span class="glyph">${icons.test}</span><strong>Kiểm tra</strong><span class="small-text">Kiểm tra</span></button>
+            <button class="study-mode secondary" onclick="KQuiz.startSmartReviewForSet('${set.id}')"><span class="glyph">${icons.spark}</span><strong>Ôn lịch</strong><span class="small-text">${dueInSet.length} thẻ đến hạn</span></button>
           </div>
         </div>
         <div class="section">
@@ -1432,6 +1523,11 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
           <div>
             <h3>${escapeHtml(card.term)}</h3>
             <p>${escapeHtml(card.definition)}</p>
+            <div class="card-meta-row">
+              <span>${getDueLabel(card)}</span>
+              <span>${card.timesReviewed || 0} lần ôn</span>
+              <span>${getCardAccuracy(card)}% đúng</span>
+            </div>
           </div>
           <div class="card-actions">
             <button class="mini-btn ${card.isStarred ? "primary" : ""}" onclick="KQuiz.toggleCardStar('${card.id}')">${icons.star}</button>
@@ -2127,8 +2223,53 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     render();
   }
 
+  function renderInsights() {
+    const days = getRecentStudyDays(14);
+    const maxDay = Math.max(1, ...days.map((day) => day.value));
+    const dueToday = getDueCards();
+    const dueWeek = state.cards.filter((card) => isCardDue(card) || (card.dueAt && card.dueAt <= addDays(7))).length;
+    const reviewedCards = state.cards.filter((card) => card.timesReviewed);
+    const totalReviews = state.cards.reduce((sum, card) => sum + (card.timesReviewed || 0), 0);
+    const accuracy = reviewedCards.length ? Math.round(reviewedCards.reduce((sum, card) => sum + getCardAccuracy(card), 0) / reviewedCards.length) : 0;
+    const hardCards = reviewedCards
+      .sort((a, b) => getCardAccuracy(a) - getCardAccuracy(b) || (a.masteryLevel || 0) - (b.masteryLevel || 0))
+      .slice(0, 5);
+    return `
+      <section class="screen">
+        ${screenHeader("Thống kê", `${computeStudyStreak()} ngày streak`, `<button class="icon-btn" onclick="KQuiz.navigate('smart-review')">${icons.spark}</button>`, "review-hub")}
+        <div class="hero-card insight-hero">
+          <h2>Lịch ôn đang sống</h2>
+          <p>Theo dõi thẻ đến hạn, nhịp học và độ đúng để biết hôm nay nên học gì trước.</p>
+          <div class="metric-row">
+            <div class="metric"><strong>${dueToday.length}</strong><span>hôm nay</span></div>
+            <div class="metric"><strong>${dueWeek}</strong><span>7 ngày tới</span></div>
+            <div class="metric"><strong>${accuracy}%</strong><span>độ đúng</span></div>
+          </div>
+        </div>
+        <div class="section card pad">
+          <div class="section-head"><h2>14 ngày gần đây</h2><span class="small-text">${totalReviews} lượt ôn</span></div>
+          <div class="study-heatmap">
+            ${days.map((day) => `<div class="heat-day" style="--heat:${Math.max(8, Math.round(day.value / maxDay * 100))}%"><span>${day.value}</span><small>${day.label}</small></div>`).join("")}
+          </div>
+        </div>
+        <div class="section card pad">
+          <div class="section-head"><h2>Thẻ nên xử lý</h2><button class="section-link" onclick="KQuiz.navigate('smart-review')">Ôn ngay</button></div>
+          <div class="list compact-list">
+            ${dueToday.slice(0, 5).map((card) => `<article class="flash-row"><div><h3>${escapeHtml(card.term)}</h3><p>${escapeHtml(card.definition)}</p><div class="card-meta-row"><span>${getDueLabel(card)}</span><span>${getCardAccuracy(card)}% đúng</span></div></div></article>`).join("") || `<div class="empty-state card"><div><strong>Không có thẻ đến hạn</strong><span>Bạn có thể tạo test mới hoặc học bộ khác.</span></div></div>`}
+          </div>
+        </div>
+        <div class="section card pad">
+          <div class="section-head"><h2>Thẻ dễ sai</h2></div>
+          <div class="list compact-list">
+            ${hardCards.map((card) => `<article class="flash-row"><div><h3>${escapeHtml(card.term)}</h3><p>${escapeHtml(card.definition)}</p><div class="card-meta-row"><span>${card.timesCorrect || 0}/${card.timesReviewed || 0} đúng</span><span>${getDueLabel(card)}</span></div></div></article>`).join("") || `<div class="empty-state card"><div><strong>Chưa có dữ liệu sai</strong><span>Làm test hoặc luyện hỏi để tạo thống kê.</span></div></div>`}
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   function startFlashcard(setId) {
-    const cards = getCardsForSet(setId);
+    const cards = getDueCards(getCardsForSet(setId)).concat(getCardsForSet(setId).filter((card) => !isCardDue(card)));
     if (!cards.length) return toast("Bộ học chưa có thẻ.", "warning");
     state.flash = { index: 0, flipped: false, mode: "set", setId, cards };
     navigate("flashcard", { id: setId });
@@ -2143,14 +2284,16 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
         ${screenHeader("Lật thẻ", `${state.flash.index + 1}/${cards.length}`, `<button class="icon-btn" onclick="KQuiz.speakCurrentFlash()">${icons.volume}</button>`, `study-detail?id=${state.params.id || state.flash.setId}`)}
         <div class="flashcard-stage">
           <div class="flashcard ${state.flash.flipped ? "flipped" : ""}" onclick="KQuiz.flipFlashcard()">
-            <div class="flash-side"><div><strong>${escapeHtml(card.term)}</strong><span>Nhấn để lật thẻ</span></div></div>
-            <div class="flash-side back"><div><strong>${escapeHtml(card.definition)}</strong><span>${escapeHtml(card.explanation || "Mặt sau")}</span></div></div>
+            <div class="flash-side"><div><strong>${escapeHtml(card.term)}</strong><span>${getDueLabel(card)} • Nhấn để lật thẻ</span></div></div>
+            <div class="flash-side back"><div><strong>${escapeHtml(card.definition)}</strong><span>${escapeHtml(card.explanation || `Độ đúng ${getCardAccuracy(card)}% • ${card.timesReviewed || 0} lần ôn`)}</span></div></div>
           </div>
         </div>
         <div class="fixed-bottom">
-          <div class="btn-row">
+          <div class="btn-row review-scale">
             <button class="btn" onclick="KQuiz.prevFlashcard()">Trước</button>
-            <button class="btn primary" onclick="KQuiz.nextFlashcard()">Đã nhớ</button>
+            <button class="btn danger" onclick="KQuiz.rateFlashcard(0)">Chưa nhớ</button>
+            <button class="btn secondary" onclick="KQuiz.rateFlashcard(1)">Khó</button>
+            <button class="btn primary" onclick="KQuiz.rateFlashcard(3)">Đã nhớ</button>
           </div>
         </div>
       </section>
@@ -2171,17 +2314,24 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   }
 
   async function nextFlashcard() {
+    await rateFlashcard(3);
+  }
+
+  async function rateFlashcard(grade = 3) {
     const card = state.flash.cards[state.flash.index];
-    if (card?.id) await reviewCard(card.id, true, 2);
+    const correct = grade >= 1;
+    const delta = grade >= 5 ? 2 : grade >= 2 ? 1 : grade === 1 ? 0 : -1;
+    if (card?.id) await reviewCard(card.id, correct, delta, grade);
     await addDailyProgress(1);
-    await addXp(2);
-    play("correct");
-    haptic("correct");
+    await addXp(grade >= 3 ? 3 : 1);
+    feedbackEffect(correct);
     if (state.flash.index >= state.flash.cards.length - 1) {
       toast("Hoàn thành phiên lật thẻ.", "success");
       play("complete");
       celebrate();
-      navigate("study-detail", { id: state.flash.setId || state.params.id });
+      const backId = state.flash.setId || state.params.id;
+      if (state.flash.mode === "smart" && (!backId || backId === "all")) navigate("home");
+      else navigate("study-detail", { id: backId });
       return;
     }
     state.flash.index += 1;
@@ -2288,7 +2438,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       <section class="screen">
         ${screenHeader("Cấu hình bài kiểm tra", `${cards.length} thẻ hợp lệ`, "", setId === "mixed" ? "study-sets" : `study-detail?id=${setId}`)}
         <div class="form-grid">
-          <label class="form-row"><span class="field-label">Nguồn câu hỏi</span>${select("testSource", state.quizConfig.source, [["all","Tất cả"],["starred","Đã ghim"],["review","Cần ôn"],["weak","Chưa thành thạo"]])}</label>
+          <label class="form-row"><span class="field-label">Nguồn câu hỏi</span>${select("testSource", state.quizConfig.source, [["all","Tất cả"],["due","Đến hạn hôm nay"],["starred","Đã ghim"],["review","Cần ôn"],["weak","Chưa thành thạo"]])}</label>
           <label class="form-row"><span class="field-label">Số câu hỏi</span><input id="testCount" class="input" type="number" min="1" max="${cards.length}" value="${Math.min(state.quizConfig.count, cards.length || 1)}"></label>
           <label class="form-row"><span class="field-label">Loại câu hỏi</span>${select("testDirection", state.quizConfig.direction, [["front_to_back","Hỏi -> Đáp"],["back_to_front","Đáp -> Hỏi"],["mixed","Hỗn hợp"]])}</label>
           <label class="form-row"><span class="field-label">Thời gian (phút)</span><input id="testTimerMinutes" class="input" type="number" min="0" max="180" value="${state.quizConfig.timerMinutes || 0}" placeholder="0 = không giới hạn"></label>
@@ -2304,6 +2454,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     const mixed = mixedIds ? mixedIds.split(",").filter(Boolean) : [];
     let cards = mixed.length ? mixed.flatMap(getCardsForSet) : getCardsForSet(setId);
     const source = $("[name='testSource']")?.value || "all";
+    if (source === "due") cards = getDueCards(cards);
     if (source === "starred") cards = cards.filter((card) => card.isStarred);
     if (source === "review") cards = cards.filter((card) => card.masteryLevel < 3);
     if (source === "weak") cards = cards.filter((card) => card.masteryLevel < 4);
@@ -2468,13 +2619,28 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     return renderFlashcard().replace("Lật thẻ", "Ôn sai siêu tốc").replace("Quay về bộ học", "Quay về");
   }
 
-  async function reviewCard(cardId, correct, delta) {
+  async function reviewCard(cardId, correct, delta, grade = null) {
     const card = await dbGet("flashcards", cardId);
     if (!card) return;
     card.timesReviewed = (card.timesReviewed || 0) + 1;
     if (correct) card.timesCorrect = (card.timesCorrect || 0) + 1;
     card.masteryLevel = clamp((card.masteryLevel || 0) + delta, 0, 5);
     card.lastReviewedAt = now();
+    const quality = Number.isFinite(grade) ? grade : (correct ? 3 : 0);
+    card.lastGrade = quality;
+    if (correct) {
+      const ease = clamp((card.easeFactor || 2.3) + (quality >= 5 ? 0.18 : quality >= 3 ? 0.04 : -0.1), 1.4, 3.0);
+      const base = card.intervalDays || (card.masteryLevel <= 1 ? 1 : 2);
+      const nextInterval = quality >= 5 ? Math.max(3, Math.round(base * ease)) : quality >= 3 ? Math.max(1, Math.round(base * Math.min(ease, 2.2))) : 1;
+      card.easeFactor = ease;
+      card.intervalDays = clamp(nextInterval, 1, 180);
+      card.dueAt = addDays(card.intervalDays);
+    } else {
+      card.lapses = (card.lapses || 0) + 1;
+      card.easeFactor = clamp((card.easeFactor || 2.3) - 0.2, 1.3, 3.0);
+      card.intervalDays = quality === 1 ? 1 : 0;
+      card.dueAt = quality === 1 ? addDays(1) : now();
+    }
     await dbPut("flashcards", card);
     const date = todayKey();
     const stat = (await dbGet("studyStats", date)) || { date, cardsReviewed: 0, correct: 0 };
@@ -2486,7 +2652,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   async function addDailyProgress(count) {
     const key = todayKey();
     const stats = (await dbGet("studyStats", key)) || { date: key, cardsReviewed: 0, studySetsCount: 0, streakCount: 1 };
-    stats.cardsReviewed += count;
+    if (!stats.cardsReviewed && count) stats.cardsReviewed = count;
     await dbPut("studyStats", stats);
     if (stats.cardsReviewed >= state.settings.dailyGoal) toast("Hoàn thành mục tiêu hằng ngày!", "success");
     await syncAchievements();
@@ -2523,9 +2689,14 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   }
 
   async function syncAchievements() {
-    const reviewed = state.cards.reduce((sum, card) => sum + (card.timesReviewed || 0), 0);
+    const allCards = await dbGetAll("flashcards");
+    const reviewed = allCards.reduce((sum, card) => sum + (card.timesReviewed || 0), 0);
+    const statsMap = Object.fromEntries((await dbGetAll("studyStats")).map((item) => [item.date, item]));
+    const streak = computeStudyStreak(statsMap);
     if (reviewed > 0) await recordAchievement("first_session");
     if (reviewed >= 100) await recordAchievement("review_100");
+    if (streak >= 3) await recordAchievement("streak_3");
+    if (streak >= 7) await recordAchievement("streak_7");
     if (state.studySets.length >= 5) await recordAchievement("create_5_sets");
   }
 
@@ -2595,22 +2766,35 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     render();
   }
 
+  function startSmartReviewForSet(setId) {
+    const setCards = getCardsForSet(setId);
+    let cards = getDueCards(setCards);
+    if (!cards.length) cards = setCards.filter((card) => (card.masteryLevel || 0) < 4).sort((a, b) => (a.masteryLevel || 0) - (b.masteryLevel || 0));
+    if (!cards.length) return toast("Bộ này chưa có thẻ cần ôn.", "success");
+    state.flash = { index: 0, flipped: false, mode: "smart", setId, cards: cards.slice(0, 30) };
+    navigate("smart-review", { id: setId });
+  }
+
   function renderSmartReview() {
-    const cards = state.cards.filter((card) => card.masteryLevel < 4).sort((a, b) => a.masteryLevel - b.masteryLevel).slice(0, 30);
-    if (cards.length && (!state.flash.cards.length || state.flash.mode !== "smart")) {
-      state.flash = { index: 0, flipped: false, mode: "smart", cards };
+    const setId = state.params.id || "";
+    const pool = setId ? getCardsForSet(setId) : state.cards;
+    const fallback = pool.filter((card) => (card.masteryLevel || 0) < 4).sort((a, b) => (a.masteryLevel || 0) - (b.masteryLevel || 0));
+    const cards = (getDueCards(pool).length ? getDueCards(pool) : fallback).slice(0, 30);
+    if (cards.length && (!state.flash.cards.length || state.flash.mode !== "smart" || state.flash.setId !== (setId || "all"))) {
+      state.flash = { index: 0, flipped: false, mode: "smart", setId: setId || "all", cards };
     }
+    const current = state.flash.cards[state.flash.index] || cards[0];
     return `
       <section class="screen">
-        ${screenHeader("Smart Review", `${cards.length} thẻ ưu tiên`, "", "review-hub")}
+        ${screenHeader("Smart Review", `${cards.length} thẻ ưu tiên`, "", setId ? `study-detail?id=${setId}` : "review-hub")}
         ${cards.length ? `
           <div class="flashcard-stage">
             <div class="flashcard ${state.flash.flipped ? "flipped" : ""}" onclick="KQuiz.flipFlashcard()">
-              <div class="flash-side"><div><strong>${escapeHtml(state.flash.cards[state.flash.index]?.term || "")}</strong><span>Thẻ yếu cần ôn</span></div></div>
-              <div class="flash-side back"><div><strong>${escapeHtml(state.flash.cards[state.flash.index]?.definition || "")}</strong><span>Đánh giá mức nhớ</span></div></div>
+              <div class="flash-side"><div><strong>${escapeHtml(current?.term || "")}</strong><span>${getDueLabel(current)} • ${current?.masteryLevel || 0}/5</span></div></div>
+              <div class="flash-side back"><div><strong>${escapeHtml(current?.definition || "")}</strong><span>Độ đúng ${getCardAccuracy(current || {})}% • đánh giá mức nhớ</span></div></div>
             </div>
           </div>
-          <div class="fixed-bottom"><div class="btn-row"><button class="btn danger" onclick="KQuiz.rateSmart(false)">Chưa nhớ</button><button class="btn primary" onclick="KQuiz.rateSmart(true)">Đã nhớ</button></div></div>
+          <div class="fixed-bottom"><div class="btn-row review-scale"><button class="btn danger" onclick="KQuiz.rateSmart(false)">Chưa nhớ</button><button class="btn secondary" onclick="KQuiz.rateFlashcard(1)">Khó</button><button class="btn primary" onclick="KQuiz.rateSmart(true)">Đã nhớ</button><button class="btn" onclick="KQuiz.flipFlashcard()">Lật</button></div></div>
         ` : `<div class="empty-state card"><div><strong>Không có thẻ cần ôn</strong><span>Bạn đang giữ nhịp rất tốt.</span></div></div>`}
       </section>
     `;
@@ -2618,7 +2802,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
 
   async function rateSmart(remembered) {
     const card = state.flash.cards[state.flash.index];
-    await reviewCard(card.id, remembered, remembered ? 1 : -1);
+    await reviewCard(card.id, remembered, remembered ? 1 : -1, remembered ? 3 : 0);
     await addXp(3);
     await addDailyProgress(1);
     feedbackEffect(remembered);
@@ -2626,7 +2810,8 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       toast("Hoàn thành Smart Review.", "success");
       play("complete");
       celebrate();
-      navigate("home");
+      if (state.flash.setId && state.flash.setId !== "all") navigate("study-detail", { id: state.flash.setId });
+      else navigate("home");
     } else {
       state.flash.index += 1;
       state.flash.flipped = false;
@@ -3753,6 +3938,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     flipFlashcard,
     prevFlashcard,
     nextFlashcard,
+    rateFlashcard,
     speakCurrentFlash,
     startLearn,
     answerLearn,
@@ -3768,6 +3954,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     submitTest,
     retakeTest,
     startReviewWrong,
+    startSmartReviewForSet,
     toggleCardStar,
     editCard,
     saveCard,
