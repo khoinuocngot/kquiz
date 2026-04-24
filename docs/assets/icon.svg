@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="KQuiz">
+  <rect width="192" height="192" rx="48" fill="#5B6CFF"/>
+  <path d="M52 48h28v42l38-42h34l-45 48 49 48h-36l-40-41v41H52V48z" fill="#fff"/>
+  <circle cx="142" cy="54" r="14" fill="#14B8A6"/>
+</svg>
