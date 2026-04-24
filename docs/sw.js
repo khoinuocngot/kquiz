@@ -1,4 +1,4 @@
-const CACHE_NAME = "kquiz-web-v3";
+const CACHE_NAME = "kquiz-web-v11";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -7,7 +7,13 @@ const CORE_ASSETS = [
   "./modules/app-shell.js",
   "./modules/ads.js",
   "./manifest.webmanifest",
+  "./ads.txt",
   "./assets/icon.svg",
+  "./assets/sfx/sfx_complete.mp3",
+  "./assets/sfx/sfx_correct.mp3",
+  "./assets/sfx/sfx_flip.mp3",
+  "./assets/sfx/sfx_select.mp3",
+  "./assets/sfx/sfx_wrong.mp3",
   "./THIRD_PARTY_NOTICES.md"
 ];
 
@@ -31,7 +37,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(event.request, { ignoreSearch: true }).then((cached) => {
       if (cached) return cached;
       return fetch(event.request).then((response) => {
         const copy = response.clone();

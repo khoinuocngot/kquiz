@@ -3,7 +3,7 @@
 (() => {
   const DB_NAME = "kquiz_web_full_v1";
   const DB_VERSION = 2;
-  const APP_VERSION = "web-1.1.0";
+  const APP_VERSION = "web-1.3.4";
   const STORE_NAMES = [
     "studySets",
     "flashcards",
@@ -33,6 +33,10 @@
     voiceEnabled: true,
     sfxEnabled: true,
     sfxVolume: 0.7,
+    motionEnabled: true,
+    hapticsEnabled: true,
+    celebrationsEnabled: true,
+    instantFeedback: true,
     effects: {
       correct: true,
       wrong: true,
@@ -45,6 +49,18 @@
       enabled: false,
       networkCode: "",
       adUnitPath: "",
+      bannerEnabled: false,
+      bannerAdUnitPath: "",
+      bannerSizes: "320x50,300x250",
+      collapseEmptyDivs: true,
+      centerAds: true,
+      placements: {
+        home: true,
+        study: true,
+        review: true,
+        tools: true,
+        result: true
+      },
       timeoutMs: 15000
     }
   };
@@ -69,6 +85,8 @@
       title: "",
       description: "",
       raw: "",
+      promptType: "MULTIPLE_CHOICE",
+      promptQuestionCount: "10",
       preview: null
     },
     studyFilters: {
@@ -109,7 +127,87 @@
     test: null,
     qr: { stream: null, scanning: false },
     processingNext: null,
-    testTimer: null
+    testTimer: null,
+    adRenderSeq: 0
+  };
+
+  const SFX = {
+    correct: "./assets/sfx/sfx_correct.mp3",
+    wrong: "./assets/sfx/sfx_wrong.mp3",
+    flip: "./assets/sfx/sfx_flip.mp3",
+    complete: "./assets/sfx/sfx_complete.mp3",
+    select: "./assets/sfx/sfx_select.mp3"
+  };
+
+  const QUICK_PROMPT_TYPES = [
+    ["TERM_DEFINITION", "Thuật ngữ - Định nghĩa"],
+    ["QUESTION_ANSWER", "Câu hỏi - Đáp án"],
+    ["MULTIPLE_CHOICE", "Trắc nghiệm"]
+  ];
+
+  const QUICK_PROMPT_TEMPLATES = {
+    TERM_DEFINITION: `Hãy chuyển nội dung tôi gửi thành đúng format để nhập vào app học.
+
+YÊU CẦU BẮT BUỘC:
+- Chỉ trả về đúng 1 code block duy nhất.
+- Không giải thích gì thêm ngoài code block.
+- Mỗi dòng đúng 1 thẻ.
+- Vế trái là THUẬT NGỮ.
+- Vế phải là ĐỊNH NGHĨA.
+- Giữa 2 vế dùng đúng 1 ký tự TAB thật.
+- Không thêm dòng trống.
+- Không đánh số thứ tự.
+- Không dùng bullet.
+- Không xuống dòng trong cùng một thẻ.
+- Nếu nội dung gốc có xuống dòng, hãy gộp lại thành 1 dòng.
+- Không thay TAB bằng dấu khác.
+
+FORMAT:
+Thuật ngữ[TAB]Định nghĩa
+
+Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`,
+    QUESTION_ANSWER: `Hãy chuyển nội dung tôi gửi thành đúng format để nhập vào app học.
+
+YÊU CẦU BẮT BUỘC:
+- Chỉ trả về đúng 1 code block duy nhất.
+- Không giải thích gì thêm ngoài code block.
+- Mỗi dòng đúng 1 thẻ.
+- Vế trái là CÂU HỎI.
+- Vế phải là ĐÁP ÁN ĐÚNG.
+- Giữa 2 vế dùng đúng 1 ký tự TAB thật.
+- Không thêm dòng trống.
+- Không đánh số thứ tự.
+- Không dùng bullet.
+- Không xuống dòng trong cùng một thẻ.
+- Nếu nội dung gốc có xuống dòng, hãy gộp lại thành 1 dòng.
+- Không thay TAB bằng dấu khác.
+
+FORMAT:
+Câu hỏi[TAB]Đáp án
+
+Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`,
+    MULTIPLE_CHOICE: `Hãy chuyển nội dung tôi gửi thành đúng format để nhập vào app học.
+
+YÊU CẦU BẮT BUỘC:
+- Chỉ trả về đúng 1 code block duy nhất.
+- Không giải thích gì thêm ngoài code block.
+- Mỗi dòng đúng 1 câu hỏi.
+- Vế trái phải chứa TOÀN BỘ câu hỏi trắc nghiệm gồm nội dung câu hỏi và các lựa chọn A. B. C. D. E. nếu có.
+- Vế phải là ĐÁP ÁN ĐÚNG.
+- Giữa 2 vế dùng đúng 1 ký tự TAB thật.
+- Không thêm dòng trống.
+- Không đánh số thứ tự.
+- Không dùng bullet.
+- Không xuống dòng trong cùng một câu.
+- Toàn bộ câu hỏi và lựa chọn phải nằm trên cùng 1 dòng ở vế trái.
+- Nếu nội dung gốc có xuống dòng, hãy gộp lại thành 1 dòng.
+- Không thêm giải thích.
+- Không thay TAB bằng dấu khác.
+
+FORMAT:
+Câu hỏi A. lựa chọn A B. lựa chọn B C. lựa chọn C D. lựa chọn D[TAB]Đáp án đúng
+
+Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -335,7 +433,17 @@
 
   async function loadAll() {
     const settings = await dbGet("settings", "appSettings");
-    state.settings = { ...defaultSettings, ...(settings?.value || {}) };
+    const saved = settings?.value || {};
+    state.settings = {
+      ...defaultSettings,
+      ...saved,
+      effects: { ...defaultSettings.effects, ...(saved.effects || {}) },
+      ads: {
+        ...defaultSettings.ads,
+        ...(saved.ads || {}),
+        placements: { ...defaultSettings.ads.placements, ...((saved.ads || {}).placements || {}) }
+      }
+    };
     state.studySets = (await dbGetAll("studySets")).sort(sortStudySets);
     state.cards = await dbGetAll("flashcards");
     state.folders = (await dbGetAll("folders")).sort((a, b) => b.createdAt - a.createdAt);
@@ -344,12 +452,14 @@
     state.achievements = Object.fromEntries((await dbGetAll("achievements")).map((item) => [item.id, item]));
     state.adRewards = await dbGetAll("adRewards").catch(() => []);
     document.documentElement.dataset.theme = state.settings.theme === "kquiz_blue" ? "" : state.settings.theme;
+    document.documentElement.dataset.motion = state.settings.motionEnabled ? "on" : "off";
   }
 
   async function saveSettings(patch = {}) {
     state.settings = { ...state.settings, ...patch };
     await dbPut("settings", { key: "appSettings", value: state.settings });
     document.documentElement.dataset.theme = state.settings.theme === "kquiz_blue" ? "" : state.settings.theme;
+    document.documentElement.dataset.motion = state.settings.motionEnabled ? "on" : "off";
   }
 
   function sortStudySets(a, b) {
@@ -473,11 +583,17 @@
       "smart-review": renderSmartReview,
       "smart-scan": renderSmartScan,
       "import-studyset": renderImportStudySet,
+      backup: renderToolsHub,
+      settings: renderToolsHub,
+      theme: renderToolsHub,
+      audio: renderToolsHub,
+      "ai-pro": renderToolsHub,
       about: renderAbout
     };
     const html = (map[route] || renderHome)();
     app.innerHTML = html + bottomNav();
     attachRouteEvents();
+    renderAdPlacements(route);
   }
 
   function attachRouteEvents() {
@@ -487,6 +603,8 @@
     if (fileInput) fileInput.addEventListener("change", handleImportFileInput);
     const importStudyInput = $("#importStudyInput");
     if (importStudyInput) importStudyInput.addEventListener("change", handleStudySetFileInput);
+    const qrImageInput = $("#qrImageInput");
+    if (qrImageInput) qrImageInput.addEventListener("change", handleQrImageInput);
     const backupInput = $("#backupInput");
     if (backupInput) backupInput.addEventListener("change", handleBackupInput);
     const smartInput = $("#smartScanInput");
@@ -503,6 +621,46 @@
     if (cardSearch) cardSearch.addEventListener("input", () => renderCardList(cardSearch.value));
     const folderName = $("#folderName");
     if (folderName) folderName.focus();
+  }
+
+  function adSlotHtml(position) {
+    const ads = state.settings.ads || defaultSettings.ads;
+    if (!ads.enabled || !ads.bannerEnabled) return "";
+    const group = position.split("-")[0];
+    const placements = { ...defaultSettings.ads.placements, ...(ads.placements || {}) };
+    if (placements[group] === false) return "";
+    const slotId = `kquiz-ad-${position.replace(/[^a-z0-9_-]/gi, "-")}`;
+    return `
+      <div class="section ad-section kquiz-ad-slot" data-ad-slot-id="${slotId}" data-ad-position="${escapeHtml(position)}">
+        <div class="ad-label">Quảng cáo</div>
+        <div id="${slotId}" class="ad-box" data-ad-status="idle">
+          <span class="ad-status">Đang chuẩn bị quảng cáo...</span>
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderAdPlacements(route) {
+    const seq = ++state.adRenderSeq;
+    try {
+      const adsModule = await import(`./modules/ads.js?v=${APP_VERSION}`);
+      if (seq !== state.adRenderSeq) return;
+      await adsModule.destroyAdSlots();
+      const ads = state.settings.ads || defaultSettings.ads;
+      const nodes = $$(".kquiz-ad-slot[data-ad-slot-id]");
+      if (!nodes.length || !ads.enabled || !ads.bannerEnabled) return;
+      const placements = nodes.map((node) => ({
+        slotId: node.dataset.adSlotId,
+        targeting: {
+          app: "kquiz",
+          route,
+          position: node.dataset.adPosition || "inline"
+        }
+      }));
+      await adsModule.renderAdSlots(ads, placements);
+    } catch (error) {
+      console.warn("KQuiz ads render skipped", error);
+    }
   }
 
   function renderHome() {
@@ -539,6 +697,8 @@
             <div class="metric"><strong>${state.history.length}</strong><span>quiz</span></div>
           </div>
         </div>
+
+        ${adSlotHtml("home-inline")}
 
         <div class="section compact">
           <div class="banner" onclick="KQuiz.navigate('review-hub')">
@@ -605,6 +765,7 @@
           ${actionCard("Trộn test", "Chọn nhiều bộ học", icons.layers, "KQuiz.showMixedTestModal()","wide warning")}
           ${actionCard("Tạo mới", "Quick Import", icons.plus, "KQuiz.navigate('quick-import')","wide")}
         </div>
+        ${adSlotHtml("study-inline")}
         ${recent.length ? `<div class="section"><div class="section-head"><h2>Gần đây</h2><button class="section-link" onclick="KQuiz.navigate('study-sets')">Xem tất cả</button></div><div class="list">${recent.map(renderStudySetCard).join("")}</div></div>` : ""}
       </section>
     `;
@@ -621,6 +782,7 @@
           ${actionCard("Lịch sử", "Xem kết quả quiz", icons.history, "KQuiz.navigate('history')")}
           ${actionCard("Test bộ học", "Vào danh sách để chọn bộ", icons.test, "KQuiz.navigate('study-sets')","wide secondary")}
         </div>
+        ${adSlotHtml("review-inline")}
         ${weakSets.length ? `<div class="section"><div class="section-head"><h2>Bộ cần ôn</h2></div><div class="list">${weakSets.map(renderStudySetCard).join("")}</div></div>` : `<div class="section empty-state card"><div><strong>Chưa có thẻ yếu</strong><span>Làm test hoặc học flashcard để tạo dữ liệu ôn.</span></div></div>`}
       </section>
     `;
@@ -628,7 +790,9 @@
 
   function renderToolsHub() {
     const ads = state.settings.ads || defaultSettings.ads;
-    const adReady = ads.enabled && (ads.adUnitPath || ads.networkCode);
+    const rewardedReady = ads.enabled && Boolean(ads.adUnitPath || ads.networkCode);
+    const bannerReady = ads.enabled && ads.bannerEnabled && Boolean(ads.bannerAdUnitPath || ads.adUnitPath);
+    const placements = { ...defaultSettings.ads.placements, ...(ads.placements || {}) };
     return `
       <section class="screen">
         ${screenHeader("Công cụ", "Backup, theme, ads, AI", "", "home")}
@@ -664,15 +828,39 @@
         </div>
         <div class="section card pad">
           <h2>Rewarded Ads Web</h2>
-          <p class="small-text">${adReady ? "Đã có cấu hình Ad Manager. Pro chỉ mở sau khi nhận reward." : "Chưa có ad unit. Pro sẽ không unlock cho tới khi cấu hình Ad Manager."}</p>
-          <label class="option-card"><input id="adsEnabled" type="checkbox" ${ads.enabled ? "checked" : ""}> Bật Google Ad Manager rewarded</label>
+          <p class="small-text">${rewardedReady ? "Đã có cấu hình rewarded. Pro chỉ mở sau khi Google Ad Manager gửi reward." : "Chưa có rewarded ad unit. Pro sẽ không unlock cho tới khi cấu hình Ad Manager."}</p>
+          <label class="option-card"><input id="adsEnabled" type="checkbox" ${ads.enabled ? "checked" : ""}> Bật Google Publisher Tag / Ad Manager</label>
           <label class="form-row"><span class="field-label">Network code</span><input id="adsNetworkCode" class="input" value="${escapeHtml(ads.networkCode || "")}" placeholder="1234567"></label>
-          <label class="form-row"><span class="field-label">Ad unit path</span><input id="adsAdUnitPath" class="input" value="${escapeHtml(ads.adUnitPath || "")}" placeholder="/1234567/kquiz_rewarded"></label>
-          <button class="btn primary" style="width:100%;margin-top:12px" onclick="KQuiz.saveAdsSettings()">Lưu ads</button>
+          <label class="form-row"><span class="field-label">Rewarded ad unit path</span><input id="adsAdUnitPath" class="input" value="${escapeHtml(ads.adUnitPath || "")}" placeholder="/1234567/kquiz_rewarded"></label>
         </div>
+        <div class="section card pad">
+          <h2>Banner Ads Web</h2>
+          <p class="small-text">${bannerReady ? "Banner sẽ hiển thị ở Home, hub và màn kết quả theo placement đã bật." : "Nhập banner ad unit riêng để hiện quảng cáo trong app web."}</p>
+          <label class="option-card"><input id="adsBannerEnabled" type="checkbox" ${ads.bannerEnabled ? "checked" : ""}> Bật banner ads</label>
+          <label class="form-row"><span class="field-label">Banner ad unit path</span><input id="adsBannerAdUnitPath" class="input" value="${escapeHtml(ads.bannerAdUnitPath || "")}" placeholder="/1234567/kquiz_banner"></label>
+          <label class="form-row"><span class="field-label">Kích thước</span><input id="adsBannerSizes" class="input" value="${escapeHtml(ads.bannerSizes || "320x50,300x250")}" placeholder="320x50,300x250"></label>
+          <label class="option-card"><input id="adsCollapseEmpty" type="checkbox" ${ads.collapseEmptyDivs !== false ? "checked" : ""}> Tự thu gọn khi không có quảng cáo</label>
+          <label class="option-card"><input id="adsCenter" type="checkbox" ${ads.centerAds !== false ? "checked" : ""}> Căn giữa quảng cáo</label>
+          <div class="chip-row" style="margin-top:12px">
+            ${adPlacementChip("home", "Home", placements.home)}
+            ${adPlacementChip("study", "Học", placements.study)}
+            ${adPlacementChip("review", "Ôn", placements.review)}
+            ${adPlacementChip("tools", "Công cụ", placements.tools)}
+            ${adPlacementChip("result", "Kết quả", placements.result)}
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn primary" onclick="KQuiz.saveAdsSettings()">Lưu ads</button>
+            <button class="btn secondary" onclick="KQuiz.refreshAds()">Tải thử banner</button>
+          </div>
+        </div>
+        ${adSlotHtml("tools-preview")}
         <button class="action-card wide" style="width:100%;margin-top:28px" onclick="KQuiz.navigate('about')"><span class="glyph">${icons.info}</span><span><strong>Giới thiệu</strong><span>Thông tin app và ủng hộ KQuiz</span></span></button>
       </section>
     `;
+  }
+
+  function adPlacementChip(key, label, checked) {
+    return `<label class="chip check-chip"><input type="checkbox" data-ad-placement="${key}" ${checked !== false ? "checked" : ""}>${escapeHtml(label)}</label>`;
   }
 
   function actionCard(title, sub, icon, handler, kind = "") {
@@ -740,7 +928,7 @@
                 <label>Nội dung</label>
                 <textarea class="textarea" name="raw" placeholder="Dán nội dung vào đây...">${escapeHtml(state.quick.raw)}</textarea>
               </div>
-              <button class="btn secondary" type="button" onclick="KQuiz.copyPrompt()">Copy prompt hỗ trợ</button>
+              ${quickPromptHelperHtml()}
               <div id="quickPreview">${quickPreviewHtml(preview)}</div>
             </div>
           </div>
@@ -757,6 +945,37 @@
     }[type] || "Trắc nghiệm";
   }
 
+  function quickPromptHelperHtml() {
+    const promptType = state.quick.promptType || promptTypeFromQuickType(state.quick.type);
+    const count = state.quick.promptQuestionCount || "10";
+    const error = promptQuestionCountError(count);
+    const prompt = buildQuickImportPrompt(promptType, promptCountValue(count));
+    return `
+      <div class="prompt-helper card pad">
+        <div class="section-head compact-head">
+          <div>
+            <h2 class="section-title">Prompt hỗ trợ</h2>
+            <p class="small-text">Copy prompt này sang ChatGPT/Gemini, rồi dán dữ liệu gốc của bạn ngay bên dưới.</p>
+          </div>
+          <span class="tag-chip">Giống app</span>
+        </div>
+        <div class="segmented prompt-tabs">
+          ${QUICK_PROMPT_TYPES.map(([type, label]) => `<button class="chip ${promptType === type ? "active" : ""}" type="button" onclick="KQuiz.setQuickPromptType('${type}')">${escapeHtml(label)}</button>`).join("")}
+        </div>
+        <label class="form-row prompt-count-row">
+          <span class="field-label">Số lượng câu muốn tạo</span>
+          <input id="promptQuestionCount" class="input" name="promptQuestionCount" type="number" min="1" inputmode="numeric" value="${escapeHtml(count)}" oninput="KQuiz.updatePromptQuestionCount()">
+        </label>
+        <p id="promptQuestionHint" class="small-text ${error ? "error-text" : ""}">${escapeHtml(error || "App không giới hạn số câu ở đây, nhưng kết quả thực tế còn phụ thuộc giới hạn trả lời của ChatGPT hoặc model bên ngoài.")}</p>
+        <textarea id="promptPreview" class="textarea prompt-preview" readonly>${escapeHtml(prompt)}</textarea>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn secondary" type="button" onclick="KQuiz.copyPrompt()">Copy prompt</button>
+          <button class="btn" type="button" onclick="KQuiz.insertPromptExample()">Dán ví dụ format</button>
+        </div>
+      </div>
+    `;
+  }
+
   function quickPreviewHtml(preview) {
     return `
       <div class="card pad">
@@ -771,6 +990,55 @@
     return `<button class="chip ${state.quick.type === type ? "active" : ""}" type="button" onclick="KQuiz.setQuickType('${type}')">${label}</button>`;
   }
 
+  function promptTypeFromQuickType(type) {
+    return type === "TERM_DEFINITION" ? "TERM_DEFINITION"
+      : type === "QUESTION_ANSWER" ? "QUESTION_ANSWER"
+        : "MULTIPLE_CHOICE";
+  }
+
+  function quickTypeFromPromptType(type) {
+    return type === "TERM_DEFINITION" ? "TERM_DEFINITION"
+      : type === "QUESTION_ANSWER" ? "QUESTION_ANSWER"
+        : "MULTIPLE_CHOICE";
+  }
+
+  function promptCountValue(value = state.quick.promptQuestionCount) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
+  }
+
+  function promptQuestionCountError(value = state.quick.promptQuestionCount) {
+    if (!String(value || "").trim()) return "Vui lòng nhập số lượng câu muốn tạo";
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || String(parsed) !== String(value).trim()) return "Chỉ nhập số nguyên dương";
+    if (parsed <= 0) return "Số lượng câu phải lớn hơn 0";
+    return "";
+  }
+
+  function buildQuickImportPrompt(type = state.quick.promptType, targetCount = promptCountValue()) {
+    const promptType = type || promptTypeFromQuickType(state.quick.type);
+    const commonRules = `BỔ SUNG QUY TẮC:
+- Số lượng đầu ra phải đúng chính xác ${targetCount} mục theo format của tab hiện tại.
+- Nếu tôi yêu cầu ${targetCount} thì phải tạo đúng ${targetCount}, không được ít hơn hoặc nhiều hơn.
+- Phải giữ đúng format hiện tại của app cho tab này.
+- Không thêm giải thích, không thêm mở đầu, không thêm kết luận ngoài code block kết quả.`;
+    const mcqRules = promptType === "MULTIPLE_CHOICE" ? `
+
+- Đáp án đúng không được thiên quá nhiều về A.
+- Cần phân bố đáp án đúng ngẫu nhiên và tương đối đều giữa A, B, C, D.
+- Không để quá nhiều câu liên tiếp có cùng một đáp án đúng.
+- Nếu dữ liệu tôi gửi đã có sẵn câu hỏi và đáp án thì hãy chuyển đúng sang format trắc nghiệm mà app đang parse.
+- Nếu dữ liệu tôi gửi chỉ là lý thuyết, ghi chú, bảng, sơ đồ hoặc hình minh họa thì hãy tự tạo câu hỏi trắc nghiệm A, B, C, D dựa trên nội dung đó.
+- Với câu tự tạo, đáp án đúng phải chính xác theo nội dung tôi gửi và vẫn phải đúng format parser hiện tại của app.` : "";
+    return `${QUICK_PROMPT_TEMPLATES[promptType] || QUICK_PROMPT_TEMPLATES.MULTIPLE_CHOICE}\n\n${commonRules}${mcqRules}`;
+  }
+
+  function promptExampleForType(type = state.quick.promptType) {
+    if (type === "TERM_DEFINITION") return "Quang hợp\tQuá trình cây xanh dùng ánh sáng để tạo chất hữu cơ\nTế bào\tĐơn vị cấu tạo cơ bản của cơ thể sống";
+    if (type === "QUESTION_ANSWER") return "Ai là người đọc bản Tuyên ngôn Độc lập năm 1945?\tChủ tịch Hồ Chí Minh\nNước sôi ở bao nhiêu độ C?\t100 độ C";
+    return "Thủ đô của Việt Nam là gì? A. Hà Nội B. Đà Nẵng C. Huế D. Cần Thơ\tA\n2 + 2 bằng mấy? A. 3 B. 4 C. 5 D. 6\tB";
+  }
+
   function select(name, value, options) {
     return `<select id="${name}" class="select" name="${name}">${options.map(([v, label]) => `<option value="${v}" ${value === v ? "selected" : ""}>${label}</option>`).join("")}</select>`;
   }
@@ -782,6 +1050,7 @@
     state.quick.title = data.get("title") || "";
     state.quick.description = data.get("description") || "";
     state.quick.raw = data.get("raw") || "";
+    state.quick.promptQuestionCount = data.get("promptQuestionCount") || state.quick.promptQuestionCount || "10";
     state.quick.termDelimiter = data.get("termDelimiter") || "tab";
     state.quick.cardDelimiter = data.get("cardDelimiter") || "line";
     state.quick.preview = parseQuickImport();
@@ -792,8 +1061,32 @@
   function setQuickType(type) {
     syncQuickForm();
     state.quick.type = type;
+    state.quick.promptType = promptTypeFromQuickType(type);
     state.quick.preview = parseQuickImport();
     render();
+  }
+
+  function setQuickPromptType(type) {
+    syncQuickForm();
+    state.quick.promptType = type;
+    state.quick.type = quickTypeFromPromptType(type);
+    state.quick.preview = parseQuickImport();
+    render();
+  }
+
+  function updatePromptQuestionCount() {
+    const input = $("#promptQuestionCount");
+    if (!input) return;
+    state.quick.promptQuestionCount = input.value;
+    const error = promptQuestionCountError(input.value);
+    const prompt = buildQuickImportPrompt(state.quick.promptType, promptCountValue(input.value));
+    const preview = $("#promptPreview");
+    const hint = $("#promptQuestionHint");
+    if (preview) preview.value = prompt;
+    if (hint) {
+      hint.textContent = error || "App không giới hạn số câu ở đây, nhưng kết quả thực tế còn phụ thuộc giới hạn trả lời của ChatGPT hoặc model bên ngoài.";
+      hint.classList.toggle("error-text", Boolean(error));
+    }
   }
 
   function delimiterValue(type) {
@@ -907,13 +1200,27 @@
     state.quick = { ...state.quick, title: "", description: "", raw: "", preview: null };
     await addXp(10);
     toast("Đã tạo bộ học.", "success");
+    play("complete");
+    celebrate();
     navigate("study-detail", { id });
   }
 
   async function copyPrompt() {
-    const prompt = `Hãy chuyển nội dung thành format cho KQuiz. Mỗi dòng 1 thẻ, vế trái và vế phải cách nhau bằng TAB. Loại bộ học: ${quickTypeLabel(state.quick.type)}. Không giải thích, chỉ trả về code block.`;
+    syncQuickForm();
+    const error = promptQuestionCountError(state.quick.promptQuestionCount);
+    if (error) return toast(error, "warning");
+    const prompt = buildQuickImportPrompt(state.quick.promptType, promptCountValue());
     await navigator.clipboard?.writeText(prompt);
-    toast("Đã copy prompt.", "success");
+    toast("Copy prompt xong rồi nè.", "success");
+  }
+
+  function insertPromptExample() {
+    syncQuickForm();
+    const example = promptExampleForType(state.quick.promptType);
+    state.quick.raw = state.quick.raw ? `${state.quick.raw.trim()}\n${example}` : example;
+    state.quick.preview = parseQuickImport();
+    render();
+    toast("Đã dán ví dụ format.", "success");
   }
 
   function renderStudySets() {
@@ -1079,7 +1386,7 @@
             <h2>Chia sẻ & xuất file</h2>
             <p class="small-text">${cards.length} thẻ • File, QR, PDF</p>
             <div class="btn-row three" style="margin-top:14px">
-              <button class="btn secondary" onclick="KQuiz.exportStudySet('${set.id}','studyset')">${icons.download} File</button>
+              <button class="btn secondary" onclick="KQuiz.showExportMenu('${set.id}')">${icons.download} File</button>
               <button class="btn secondary" onclick="KQuiz.showQr('${set.id}')">${icons.qr} QR</button>
               <button class="btn danger" onclick="KQuiz.showPdfExport('${set.id}')">${icons.pdf} PDF Pro</button>
             </div>
@@ -1379,7 +1686,7 @@
     if (!pending) return;
     const adsConfig = state.settings.ads || defaultSettings.ads;
     try {
-      const { requestRewardedAd } = await import("./modules/ads.js");
+      const { requestRewardedAd } = await import(`./modules/ads.js?v=${APP_VERSION}`);
       toast("Đang gọi quảng cáo rewarded...", "warning");
       const result = await requestRewardedAd(adsConfig, { feature: pending.feature, targetKey: pending.targetKey });
       if (!result.granted) {
@@ -1414,6 +1721,7 @@
         questions: generated.questions,
         index: 0,
         answers: {},
+        feedback: {},
         flags: {},
         startedAt: now(),
         source: "file"
@@ -1429,10 +1737,10 @@
         ${screenHeader("Đọc tài liệu", "Processing", "", "import-file")}
         <div class="section">
           <div class="card pad" style="text-align:center">
-            <div class="glyph" style="width:86px;height:86px;border-radius:28px;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;margin:0 auto 18px">${icons.spark}</div>
+            <div class="glyph processing-orb" style="width:86px;height:86px;border-radius:28px;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;margin:0 auto 18px">${icons.spark}</div>
             <h2>Đang hiểu nội dung</h2>
             <p class="small-text">Đọc tài liệu, OCR nếu cần, lọc nội dung và tạo câu hỏi.</p>
-            <div class="progress" style="--value:76%;margin-top:24px"><span></span></div>
+            <div class="progress shimmer" style="--value:76%;margin-top:24px"><span></span></div>
           </div>
         </div>
       </section>
@@ -1457,13 +1765,13 @@
   async function extractTextFromFile(file, mode = "FREE") {
     const name = file.name.toLowerCase();
     if (file.type.startsWith("text/") || name.endsWith(".txt")) return file.text();
-    if (file.type === "application/pdf" || name.endsWith(".pdf")) return extractPdfText(file);
+    if (file.type === "application/pdf" || name.endsWith(".pdf")) return extractPdfText(file, mode);
     if (name.endsWith(".docx")) return extractDocxText(file);
     if (file.type.startsWith("image/")) return extractImageText(file, mode);
     throw new Error("Định dạng file chưa được hỗ trợ.");
   }
 
-  async function extractPdfText(file) {
+  async function extractPdfText(file, mode = "FREE") {
     const pdfjs = await import(CDN.pdfjs);
     pdfjs.GlobalWorkerOptions.workerSrc = CDN.pdfWorker;
     const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
@@ -1475,7 +1783,7 @@
     }
     const text = pages.join("\n\n").trim();
     if (text) return text;
-    throw new Error("PDF không có text; hãy dùng ảnh/OCR hoặc Smart Scan.");
+    return ocrPdfDocument(doc, mode);
   }
 
   async function extractDocxText(file) {
@@ -1485,12 +1793,62 @@
   }
 
   async function extractImageText(file, mode) {
-    if (mode === "FREE") {
-      return `Ảnh ${file.name}. OCR đầy đủ cần chế độ Chuẩn hoặc AI Pro. Hãy tạo câu hỏi thủ công từ nội dung ảnh nếu OCR chưa sẵn sàng.`;
-    }
+    await ensureTesseract();
+    const input = mode === "STANDARD" || mode === "AI_PRO"
+      ? await imageFileToOcrCanvas(file)
+      : file;
+    const result = await window.Tesseract.recognize(input, "vie+eng");
+    const text = result.data.text.trim();
+    if (!text) throw new Error("OCR không đọc được chữ trong ảnh này. Hãy thử ảnh rõ hơn hoặc Smart Scan.");
+    return text;
+  }
+
+  async function ensureTesseract() {
     await loadScript(CDN.tesseract);
-    const result = await window.Tesseract.recognize(file, "vie+eng");
-    return result.data.text.trim();
+    if (!window.Tesseract?.recognize) throw new Error("Không tải được OCR engine.");
+  }
+
+  async function imageFileToOcrCanvas(file) {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(bitmap, 0, 0);
+    enhanceCanvasForOcr(canvas);
+    return canvas;
+  }
+
+  async function ocrPdfDocument(doc, mode = "FREE") {
+    await ensureTesseract();
+    const texts = [];
+    for (let i = 1; i <= doc.numPages; i += 1) {
+      const page = await doc.getPage(i);
+      const viewport = page.getViewport({ scale: mode === "FREE" ? 1.25 : 1.6 });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      if (mode !== "FREE") enhanceCanvasForOcr(canvas);
+      const result = await window.Tesseract.recognize(canvas, "vie+eng");
+      const pageText = result.data.text.trim();
+      if (pageText) texts.push(pageText);
+    }
+    const text = texts.join("\n\n").trim();
+    if (!text) throw new Error("PDF scan không đọc được chữ. Hãy thử Smart Scan hoặc ảnh rõ hơn.");
+    return text;
+  }
+
+  function enhanceCanvasForOcr(canvas) {
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < image.data.length; i += 4) {
+      const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+      const high = gray > 155 ? 255 : 0;
+      image.data[i] = image.data[i + 1] = image.data[i + 2] = high;
+    }
+    ctx.putImageData(image, 0, 0);
   }
 
   async function generateQuizFromText(text, count = 10, difficulty = "Trung bình", title = "Quiz") {
@@ -1566,6 +1924,7 @@
     state.quiz.questions = state.quiz.questions.slice(0, count);
     state.quiz.index = 0;
     state.quiz.answers = {};
+    state.quiz.feedback = {};
     navigate("quiz");
   }
 
@@ -1615,6 +1974,7 @@
       questions: quiz.questions,
       index: quiz.index,
       answers: quiz.answers,
+      feedback: state.settings.instantFeedback ? (quiz.feedback || {}) : {},
       onJump: "KQuiz.jumpQuiz",
       onSelect: "KQuiz.selectQuizAnswer",
       onPrev: "KQuiz.prevQuiz",
@@ -1628,7 +1988,7 @@
     return `
       <section class="screen">
         ${screenHeader(cfg.title, cfg.subtitle, "", cfg.back)}
-        <div class="question-strip">${cfg.questions.map((_, i) => `<button class="question-dot ${i === cfg.index ? "active" : ""} ${cfg.answers[i] != null ? "done" : ""}" onclick="${cfg.onJump}(${i})">${i + 1}</button>`).join("")}</div>
+        <div class="question-strip">${cfg.questions.map((_, i) => `<button class="${questionDotClass(cfg, i)}" onclick="${cfg.onJump}(${i})">${i + 1}</button>`).join("")}</div>
         <div class="section">
           <div class="card pad">
             <h2>${escapeHtml(cfg.question.question)}</h2>
@@ -1636,7 +1996,7 @@
           </div>
         </div>
         <div class="section option-list">
-          ${cfg.question.choices.map((choice, i) => `<button class="option-card ${cfg.answers[cfg.index] === i ? "selected" : ""}" onclick="${cfg.onSelect}(${i})"><span class="option-letter">${String.fromCharCode(65 + i)}</span><span>${escapeHtml(normalizeChoice(choice))}</span></button>`).join("")}
+          ${cfg.question.choices.map((choice, i) => `<button class="${questionOptionClass(cfg, i)}" onclick="${cfg.onSelect}(${i})"><span class="option-letter">${String.fromCharCode(65 + i)}</span><span>${escapeHtml(normalizeChoice(choice))}</span></button>`).join("")}
         </div>
         <div class="fixed-bottom">
           <div class="btn-row">
@@ -1648,9 +2008,38 @@
     `;
   }
 
+  function questionDotClass(cfg, index) {
+    const classes = ["question-dot"];
+    if (index === cfg.index) classes.push("active");
+    if (cfg.answers[index] != null) classes.push("done");
+    const feedback = cfg.feedback?.[index];
+    if (feedback) classes.push(feedback);
+    return classes.join(" ");
+  }
+
+  function questionOptionClass(cfg, optionIndex) {
+    const selected = cfg.answers?.[cfg.index];
+    const feedback = cfg.feedback?.[cfg.index];
+    const correctIndex = cfg.question.correctChoiceIndex;
+    const classes = ["option-card"];
+    if (selected === optionIndex) classes.push("selected", "answer-selected");
+    if (feedback === "correct" && optionIndex === correctIndex) classes.push("correct", "answer-pop");
+    if (feedback === "wrong" && selected === optionIndex) classes.push("wrong", "answer-shake");
+    if (feedback === "wrong" && optionIndex === correctIndex) classes.push("correct", "answer-reveal");
+    return classes.join(" ");
+  }
+
   function selectQuizAnswer(idx) {
     state.quiz.answers[state.quiz.index] = idx;
-    play("select");
+    state.quiz.feedback ||= {};
+    const question = state.quiz.questions[state.quiz.index];
+    const correct = idx === question.correctChoiceIndex;
+    state.quiz.feedback[state.quiz.index] = correct ? "correct" : "wrong";
+    if (state.settings.instantFeedback) feedbackEffect(correct);
+    else {
+      play("select");
+      haptic("select");
+    }
     render();
   }
 
@@ -1675,6 +2064,7 @@
     await addXp(10);
     await recordHighScore(quiz.result.percent);
     play("complete");
+    celebrate();
     navigate("result");
   }
 
@@ -1687,6 +2077,7 @@
         <div class="section">
           <div class="score-ring" style="--score:${result.percent}%"><div class="score-ring-inner"><div><strong>${result.percent}%</strong><br><span class="small-text">${result.correct}/${result.total} đúng</span></div></div></div>
         </div>
+        ${adSlotHtml("result-quiz")}
         <div class="section list">
           <button class="btn primary" onclick="KQuiz.startReviewWrongFromQuiz()">Mở khóa Ôn Sai Siêu Tốc Pro</button>
           <button class="btn secondary" onclick="KQuiz.retryQuiz()">Làm lại phát nữa</button>
@@ -1769,6 +2160,7 @@
   function flipFlashcard() {
     state.flash.flipped = !state.flash.flipped;
     play("flip");
+    haptic("select");
     render();
   }
 
@@ -1783,9 +2175,12 @@
     if (card?.id) await reviewCard(card.id, true, 2);
     await addDailyProgress(1);
     await addXp(2);
+    play("correct");
+    haptic("correct");
     if (state.flash.index >= state.flash.cards.length - 1) {
       toast("Hoàn thành phiên lật thẻ.", "success");
       play("complete");
+      celebrate();
       navigate("study-detail", { id: state.flash.setId || state.params.id });
       return;
     }
@@ -1824,6 +2219,7 @@
       questions: learn.cards,
       index: learn.index,
       answers: Object.fromEntries(learn.answers.map((a, i) => [i, a.selected])),
+      feedback: Object.fromEntries(learn.answers.map((a, i) => [i, a.correct ? "correct" : "wrong"])),
       onJump: "KQuiz.jumpLearn",
       onSelect: "KQuiz.answerLearn",
       onPrev: "KQuiz.prevLearn",
@@ -1848,12 +2244,14 @@
     const card = learn.cards[learn.index];
     const q = cardToQuestion(card);
     const correct = idx === q.correctChoiceIndex;
+    const previous = learn.answers[learn.index];
     learn.answers[learn.index] = { selected: idx, correct };
-    if (correct) learn.correct += 1;
+    if (correct && !previous?.correct) learn.correct += 1;
+    if (!correct && previous?.correct) learn.correct = Math.max(0, learn.correct - 1);
     await reviewCard(card.id, correct, correct ? 1 : -1);
     await addDailyProgress(1);
     if (correct) await addXp(5);
-    play(correct ? "correct" : "wrong");
+    feedbackEffect(correct);
     render();
   }
 
@@ -1923,6 +2321,7 @@
       questions: [],
       index: 0,
       answers: {},
+      feedback: {},
       startedAt: now(),
       timerMinutes: state.quizConfig.timerMinutes,
       autoSubmit: state.quizConfig.autoSubmit
@@ -1942,6 +2341,7 @@
       questions: test.questions,
       index: test.index,
       answers: test.answers,
+      feedback: state.settings.instantFeedback ? (test.feedback || {}) : {},
       onJump: "KQuiz.jumpTest",
       onSelect: "KQuiz.selectTestAnswer",
       onPrev: "KQuiz.prevTest",
@@ -1980,7 +2380,19 @@
     }, 1000);
   }
 
-  function selectTestAnswer(idx) { state.test.answers[state.test.index] = idx; play("select"); render(); }
+  function selectTestAnswer(idx) {
+    state.test.answers[state.test.index] = idx;
+    state.test.feedback ||= {};
+    const question = state.test.questions[state.test.index];
+    const correct = idx === question.correctChoiceIndex;
+    state.test.feedback[state.test.index] = correct ? "correct" : "wrong";
+    if (state.settings.instantFeedback) feedbackEffect(correct);
+    else {
+      play("select");
+      haptic("select");
+    }
+    render();
+  }
   function jumpTest(idx) { state.test.index = idx; render(); }
   function prevTest() { state.test.index = clamp(state.test.index - 1, 0, state.test.questions.length - 1); render(); }
   function nextTest() { state.test.index = clamp(state.test.index + 1, 0, state.test.questions.length - 1); render(); }
@@ -2008,6 +2420,7 @@
     await addXp(10);
     await recordHighScore(percent);
     play("complete");
+    celebrate();
     navigate("test-result", { id: test.setId });
   }
 
@@ -2018,6 +2431,7 @@
       <section class="screen">
         ${screenHeader("Kết quả kiểm tra", `${result.correct}/${result.total} đúng`, "", state.test.setId === "mixed" ? "study-sets" : `study-detail?id=${state.test.setId}`)}
         <div class="section"><div class="score-ring" style="--score:${result.percent}%"><div class="score-ring-inner"><div><strong>${result.percent}%</strong><br><span class="small-text">điểm</span></div></div></div></div>
+        ${adSlotHtml("result-test")}
         <div class="section list">
           <button class="btn primary" onclick="KQuiz.startReviewWrong()">Mở khóa Ôn Sai Siêu Tốc Pro</button>
           <button class="btn secondary" onclick="KQuiz.retakeTest()">Làm lại phát nữa</button>
@@ -2207,8 +2621,11 @@
     await reviewCard(card.id, remembered, remembered ? 1 : -1);
     await addXp(3);
     await addDailyProgress(1);
+    feedbackEffect(remembered);
     if (state.flash.index >= state.flash.cards.length - 1) {
       toast("Hoàn thành Smart Review.", "success");
+      play("complete");
+      celebrate();
       navigate("home");
     } else {
       state.flash.index += 1;
@@ -2225,8 +2642,16 @@
         <div class="action-grid">
           ${actionCard("Chọn file", ".studyset / .json", icons.upload, "document.getElementById('importStudyInput').click()","wide")}
           ${actionCard("Quét QR", "Camera", icons.qr, "KQuiz.startQrScanner()","wide secondary")}
+          ${actionCard("Ảnh QR", "Chọn ảnh QR từ máy", icons.scan, "document.getElementById('qrImageInput').click()","wide warning")}
         </div>
         <input id="importStudyInput" class="hidden" type="file" accept=".studyset,.json,application/json">
+        <input id="qrImageInput" class="hidden" type="file" accept="image/*">
+        <div class="section card pad">
+          <h2>Dán payload / JSON</h2>
+          <p class="small-text">Dùng khi camera không mở được trên HTTP local hoặc QR quá lớn. Hỗ trợ payload KQUIZ_STUDYSET_V1 và JSON export.</p>
+          <textarea id="manualImportPayload" class="textarea payload-input" placeholder="Dán payload QR hoặc nội dung .studyset/.json vào đây..."></textarea>
+          <button class="btn primary" style="width:100%;margin-top:12px" onclick="KQuiz.importStudySetFromText()">Đọc nội dung đã dán</button>
+        </div>
         ${preview ? `
           <div class="section card pad">
             <h2>Preview import</h2>
@@ -2253,6 +2678,40 @@
     await importStudySetPayload(text);
   }
 
+  async function importStudySetFromText() {
+    const text = $("#manualImportPayload")?.value || "";
+    if (!text.trim()) return toast("Chưa có payload/JSON để đọc.", "warning");
+    await importStudySetPayload(text);
+  }
+
+  async function handleQrImageInput(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const payload = await scanQrFromImageFile(file);
+      await importStudySetPayload(payload);
+    } catch (error) {
+      console.warn(error);
+      toast(error.message || "Không đọc được QR trong ảnh.", "error");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function scanQrFromImageFile(file) {
+    await loadScript(CDN.jsqr);
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = window.jsQR(imageData.data, imageData.width, imageData.height);
+    if (!code?.data) throw new Error("Ảnh này không có QR hợp lệ.");
+    return code.data;
+  }
+
   async function importStudySetPayload(text) {
     try {
       const payload = parseQrPayload(text);
@@ -2264,7 +2723,7 @@
       toast("Đã đọc file/QR. Kiểm tra preview rồi nhập.", "success");
       render();
     } catch (error) {
-      console.error(error);
+      console.warn(error);
       toast("File/QR không hợp lệ.", "error");
     }
   }
@@ -2279,6 +2738,8 @@
     const imported = await saveImportedStudySet(state.importPreview.data);
     state.importPreview = null;
     toast("Import bộ học thành công.", "success");
+    play("complete");
+    celebrate();
     navigate("study-detail", { id: imported.id });
   }
 
@@ -2313,6 +2774,7 @@
       await dbPut("flashcards", createCard(id, {
         term: item.term || item.question || "",
         definition: item.definition || item.answer || "",
+        itemType: item.itemType || set.studySetType || "TERM_DEFINITION",
         choices: normalizeChoices(item.choices),
         correctChoiceIndex: item.correctChoiceIndex ?? -1,
         explanation: item.explanation || "",
@@ -2335,15 +2797,77 @@
   async function exportStudySet(setId, format = "studyset") {
     const set = getSet(setId);
     const cards = getCardsForSet(setId);
-    const data = buildStudySetExport(set, cards);
-    const content = JSON.stringify(data, null, 2);
-    downloadBlob(new Blob([content], { type: "application/json" }), `${safeFileName(set.title)}.${format === "json" ? "json" : "studyset"}`);
-    if (navigator.share && navigator.canShare) {
+    const exportFile = buildStudySetFile(set, cards, format);
+    downloadBlob(exportFile.blob, exportFile.name);
+    if (format === "studyset" && navigator.share && navigator.canShare) {
       try {
-        const file = new File([content], `${safeFileName(set.title)}.studyset`, { type: "application/json" });
+        const file = new File([exportFile.blob], exportFile.name, { type: exportFile.type });
         await navigator.share({ files: [file], title: set.title });
       } catch {}
     }
+  }
+
+  function showExportMenu(setId) {
+    openModal(`
+      <h2>Xuất bộ học</h2>
+      <p>Chọn định dạng phù hợp để chia sẻ hoặc mở lại trên app/web.</p>
+      <div class="list">
+        <button class="btn" onclick="KQuiz.closeModal();KQuiz.exportStudySet('${setId}','studyset')">.studyset - chuẩn KQuiz</button>
+        <button class="btn" onclick="KQuiz.closeModal();KQuiz.exportStudySet('${setId}','json')">JSON</button>
+        <button class="btn" onclick="KQuiz.closeModal();KQuiz.exportStudySet('${setId}','csv')">CSV</button>
+        <button class="btn" onclick="KQuiz.closeModal();KQuiz.exportStudySet('${setId}','txt')">TXT</button>
+      </div>
+    `);
+  }
+
+  function buildStudySetFile(set, cards, format = "studyset") {
+    const safeName = safeFileName(set.title);
+    if (format === "csv") {
+      const content = studySetToCsv(cards);
+      return { blob: new Blob([content], { type: "text/csv;charset=utf-8" }), name: `${safeName}.csv`, type: "text/csv" };
+    }
+    if (format === "txt") {
+      const content = studySetToTxt(set, cards);
+      return { blob: new Blob([content], { type: "text/plain;charset=utf-8" }), name: `${safeName}.txt`, type: "text/plain" };
+    }
+    const content = JSON.stringify(buildStudySetExport(set, cards), null, 2);
+    const ext = format === "json" ? "json" : "studyset";
+    return { blob: new Blob([content], { type: "application/json;charset=utf-8" }), name: `${safeName}.${ext}`, type: "application/json" };
+  }
+
+  function studySetToCsv(cards) {
+    const rows = [["Term", "Definition", "Explanation", "Choices", "Correct Choice Index", "Mastery Level", "Starred", "Source Snippet"]];
+    cards.forEach((card) => rows.push([
+      card.term,
+      card.definition,
+      card.explanation || "",
+      Array.isArray(card.choices) ? JSON.stringify(card.choices) : card.choices || "",
+      String(card.correctChoiceIndex ?? -1),
+      String(card.masteryLevel || 0),
+      card.isStarred ? "Yes" : "No",
+      card.sourceSnippet || ""
+    ]));
+    return "\uFEFF" + rows.map((row) => row.map(csvCell).join(",")).join("\n");
+  }
+
+  function csvCell(value) {
+    const text = String(value ?? "");
+    return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  }
+
+  function studySetToTxt(set, cards) {
+    const lines = [`=== ${set.title} ===`];
+    if (set.description) lines.push(set.description);
+    lines.push("", `Exported: ${new Date().toLocaleString("vi-VN")}`, `Total cards: ${cards.length}`, "", "--- Content ---");
+    cards.forEach((card, index) => {
+      lines.push(`${index + 1}. ${card.term}`);
+      lines.push(`   ${card.definition}`);
+      const choices = normalizeChoices(card.choices);
+      if (choices.length) choices.forEach((choice) => lines.push(`   - ${choice}`));
+      if (card.explanation) lines.push(`   Gợi ý: ${card.explanation}`);
+      lines.push("");
+    });
+    return lines.join("\n");
   }
 
   function buildStudySetExport(set, cards) {
@@ -2365,6 +2889,7 @@
         term: card.term,
         definition: card.definition,
         explanation: card.explanation || "",
+        itemType: card.itemType || set.studySetType || "TERM_DEFINITION",
         choices: Array.isArray(card.choices) ? JSON.stringify(card.choices) : card.choices || "",
         correctChoiceIndex: card.correctChoiceIndex ?? -1,
         sourceSnippet: card.sourceSnippet || "",
@@ -2411,32 +2936,39 @@
   }
 
   async function startQrScanner() {
-    $("#qrScanner")?.classList.remove("hidden");
-    const video = $("#qrVideo");
-    const canvas = $("#qrCanvas");
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-    state.qr.stream = stream;
-    state.qr.scanning = true;
-    video.srcObject = stream;
-    const ctx = canvas.getContext("2d");
-    await loadScript(CDN.jsqr);
-    const tick = async () => {
-      if (!state.qr.scanning) return;
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = window.jsQR(imageData.data, imageData.width, imageData.height);
-        if (code?.data) {
-          stopQrScanner();
-          await importStudySetPayload(code.data);
-          return;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Trình duyệt không hỗ trợ camera. Hãy dùng Ảnh QR hoặc dán payload.");
+      $("#qrScanner")?.classList.remove("hidden");
+      const video = $("#qrVideo");
+      const canvas = $("#qrCanvas");
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      state.qr.stream = stream;
+      state.qr.scanning = true;
+      video.srcObject = stream;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      await loadScript(CDN.jsqr);
+      const tick = async () => {
+        if (!state.qr.scanning) return;
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = window.jsQR(imageData.data, imageData.width, imageData.height);
+          if (code?.data) {
+            stopQrScanner();
+            await importStudySetPayload(code.data);
+            return;
+          }
         }
-      }
-      requestAnimationFrame(tick);
-    };
-    tick();
+        requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (error) {
+      stopQrScanner();
+      console.warn(error);
+      toast(error.message || "Không mở được camera. Hãy dùng Ảnh QR hoặc dán payload.", "error");
+    }
   }
 
   function stopQrScanner() {
@@ -2498,8 +3030,8 @@
     await loadScript(CDN.pdfLib);
     const pdf = await window.PDFLib.PDFDocument.create();
     for (const file of state.smartScan.files) {
-      const bytes = await imageFileToPdfBytes(file, state.smartScan.mode);
-      const img = file.type.includes("png")
+      const { bytes, format } = await imageFileToPdfBytes(file, state.smartScan.mode);
+      const img = format === "png"
         ? await pdf.embedPng(bytes)
         : await pdf.embedJpg(bytes);
       const page = pdf.addPage([img.width, img.height]);
@@ -2508,29 +3040,38 @@
     state.smartScan.pdfBlob = new Blob([await pdf.save()], { type: "application/pdf" });
     state.smartScan.pageCount = state.smartScan.files.length;
     toast("Đã tạo PDF scan.", "success");
+    play("complete");
     render();
   }
 
   async function imageFileToPdfBytes(file, mode) {
-    if (mode === "COLOR") return new Uint8Array(await file.arrayBuffer());
-    const dataUrl = await preprocessImage(file);
-    return dataUrlToBytes(dataUrl);
+    const name = file.name.toLowerCase();
+    if (mode === "COLOR" && (file.type.includes("png") || name.endsWith(".png"))) {
+      return { bytes: new Uint8Array(await file.arrayBuffer()), format: "png" };
+    }
+    if (mode === "COLOR" && (file.type.includes("jpeg") || file.type.includes("jpg") || name.endsWith(".jpg") || name.endsWith(".jpeg"))) {
+      return { bytes: new Uint8Array(await file.arrayBuffer()), format: "jpg" };
+    }
+    const dataUrl = await preprocessImage(file, mode);
+    return { bytes: dataUrlToBytes(dataUrl), format: "jpg" };
   }
 
-  async function preprocessImage(file) {
+  async function preprocessImage(file, mode = "HIGH_CONTRAST_BW") {
     const bitmap = await createImageBitmap(file);
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(bitmap, 0, 0);
-    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    for (let i = 0; i < image.data.length; i += 4) {
-      const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
-      const high = gray > 160 ? 255 : 0;
-      image.data[i] = image.data[i + 1] = image.data[i + 2] = high;
+    if (mode !== "COLOR") {
+      const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < image.data.length; i += 4) {
+        const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+        const high = gray > 160 ? 255 : 0;
+        image.data[i] = image.data[i + 1] = image.data[i + 2] = high;
+      }
+      ctx.putImageData(image, 0, 0);
     }
-    ctx.putImageData(image, 0, 0);
     return canvas.toDataURL("image/jpeg", 0.92);
   }
 
@@ -2542,12 +3083,15 @@
   }
 
   function saveSmartScanPdf() {
+    if (!state.smartScan.pdfBlob) return toast("Chưa có PDF scan để lưu.", "warning");
     downloadBlob(state.smartScan.pdfBlob, `kquiz-smart-scan-${Date.now()}.pdf`);
   }
 
   function useSmartScanPdf() {
+    if (!state.smartScan.pdfBlob) return toast("Chưa có PDF scan để nhập.", "warning");
     const file = new File([state.smartScan.pdfBlob], `kquiz-smart-scan-${Date.now()}.pdf`, { type: "application/pdf" });
     state.importFile.file = file;
+    state.importFile.mode = "STANDARD";
     navigate("import-file");
   }
 
@@ -2572,34 +3116,172 @@
     const set = getSet(setId);
     const cards = getCardsForSet(setId);
     const pdf = await window.PDFLib.PDFDocument.create();
-    let page = pdf.addPage([595, 842]);
-    let y = 790;
-    const font = await pdf.embedFont(window.PDFLib.StandardFonts.Helvetica);
-    const draw = (text, size = 12) => {
-      const clean = String(text || "").normalize("NFKD").replace(/[^\x00-\x7F]/g, "");
-      if (y < 60) { page = pdf.addPage([595, 842]); y = 790; }
-      page.drawText(clean.slice(0, 96), { x: 42, y, size, font, color: window.PDFLib.rgb(0.12, 0.16, 0.24) });
-      y -= size + 10;
-    };
-    draw(`KQuiz - ${set.title}`, 20);
-    draw(`Mode: ${mode} - Total: ${cards.length}`, 12);
-    cards.forEach((card, index) => {
-      draw(`${index + 1}. ${card.term}`, 13);
-      const choices = card.choices?.length ? card.choices : [card.definition];
-      choices.forEach((choice) => draw(`   ${choice}`, 11));
-      if (mode !== "exam") draw(`Answer: ${card.definition}`, 11);
-      if (mode === "review") { draw("Notes: ______________________________", 11); draw("______________________________", 11); }
-      y -= 4;
-    });
+    const pages = createExamPdfCanvases(set, cards, mode);
+    for (const canvas of pages) {
+      const img = await pdf.embedPng(dataUrlToBytes(canvas.toDataURL("image/png")));
+      const page = pdf.addPage([595, 842]);
+      page.drawImage(img, { x: 0, y: 0, width: 595, height: 842 });
+    }
     const blob = new Blob([await pdf.save()], { type: "application/pdf" });
     downloadBlob(blob, `${safeFileName(set.title)}-${mode}.pdf`);
     toast("Đã xuất PDF.", "success");
   }
 
+  function createExamPdfCanvases(set, cards, mode) {
+    const width = 595;
+    const height = 842;
+    const scale = 2;
+    const margin = 42;
+    const textWidth = width - margin * 2;
+    const pages = [];
+    let canvas;
+    let ctx;
+    let y = margin;
+
+    const font = (size, weight = 400) => `${weight} ${size}px Arial, "Segoe UI", sans-serif`;
+
+    const newPage = () => {
+      canvas = document.createElement("canvas");
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      ctx = canvas.getContext("2d");
+      ctx.scale(scale, scale);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      y = margin;
+    };
+
+    const finishPage = () => {
+      ctx.font = font(10);
+      ctx.fillStyle = "#6b7280";
+      ctx.fillText(`KQuiz • Trang ${pages.length + 1}`, margin, height - 24);
+      pages.push(canvas);
+    };
+
+    const ensureSpace = (needed) => {
+      if (y + needed <= height - margin) return;
+      finishPage();
+      newPage();
+    };
+
+    const wrap = (text, maxWidth) => {
+      const words = String(text || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+      const lines = [];
+      let current = "";
+      words.forEach((word) => {
+        const test = current ? `${current} ${word}` : word;
+        if (ctx.measureText(test).width <= maxWidth) {
+          current = test;
+        } else {
+          if (current) lines.push(current);
+          current = word;
+        }
+      });
+      if (current) lines.push(current);
+      return lines.length ? lines : [""];
+    };
+
+    const drawWrapped = (text, options = {}) => {
+      const size = options.size || 12;
+      const lineHeight = options.lineHeight || size + 8;
+      const weight = options.weight || 400;
+      const color = options.color || "#1f2937";
+      const indent = options.indent || 0;
+      ctx.font = font(size, weight);
+      ctx.fillStyle = color;
+      String(text || "").split("\n").forEach((paragraph) => {
+        if (!paragraph.trim()) {
+          y += lineHeight;
+          return;
+        }
+        wrap(paragraph, textWidth - indent).forEach((line) => {
+          ensureSpace(lineHeight + 6);
+          ctx.fillText(line, margin + indent, y);
+          y += lineHeight;
+        });
+      });
+    };
+
+    const drawHeader = () => {
+      ensureSpace(116);
+      ctx.strokeStyle = "#dbe3f5";
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, margin, y, textWidth, 88, 18);
+      ctx.stroke();
+      ctx.fillStyle = "#5c70ff";
+      roundRect(ctx, margin + 16, y + 16, 40, 40, 12);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = font(22, 800);
+      ctx.fillText("K", margin + 29, y + 43);
+      ctx.fillStyle = "#142038";
+      ctx.font = font(20, 800);
+      ctx.fillText(truncateText(ctx, set.title, 360), margin + 72, y + 32);
+      ctx.fillStyle = "#687487";
+      ctx.font = font(11);
+      ctx.fillText(`Kiểu PDF: ${pdfModeLabel(mode)}`, margin + 72, y + 54);
+      ctx.fillText(`Số câu: ${cards.length} • Ngày xuất: ${new Date().toLocaleDateString("vi-VN")}`, margin + 72, y + 72);
+      y += 106;
+      if (set.description) drawWrapped(set.description, { size: 11, color: "#687487", lineHeight: 16 });
+      y += 8;
+    };
+
+    newPage();
+    drawHeader();
+    cards.forEach((card, index) => {
+      const choices = normalizeChoices(card.choices);
+      ensureSpace(mode === "review" ? 132 : 76);
+      drawWrapped(`${index + 1}. ${card.term || `Câu hỏi ${index + 1}`}`, { size: 13, weight: 700, lineHeight: 20, color: "#1f2c4a" });
+      if (choices.length) {
+        choices.forEach((choice) => drawWrapped(choice, { size: 11, lineHeight: 17, indent: 14 }));
+      } else if (mode === "exam") {
+        drawWrapped("Trả lời: ______________________________", { size: 11, lineHeight: 17, indent: 14, color: "#687487" });
+      }
+      if (mode !== "exam") {
+        const answer = choices.length && card.correctChoiceIndex >= 0 && card.correctChoiceIndex < choices.length
+          ? choices[card.correctChoiceIndex]
+          : card.definition;
+        drawWrapped(`Đáp án: ${answer || "Chưa có đáp án"}`, { size: 11, lineHeight: 17, indent: 14, color: "#0f7a4f" });
+      }
+      if (mode === "review") {
+        y += 4;
+        drawWrapped("Ghi chú: ______________________________", { size: 11, lineHeight: 17, indent: 14, color: "#687487" });
+        drawWrapped("______________________________________", { size: 11, lineHeight: 17, indent: 14, color: "#687487" });
+      }
+      y += 8;
+    });
+    finishPage();
+    return pages;
+  }
+
+  function roundRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + width, y, x + width, y + height, radius);
+    ctx.arcTo(x + width, y + height, x, y + height, radius);
+    ctx.arcTo(x, y + height, x, y, radius);
+    ctx.arcTo(x, y, x + width, y, radius);
+    ctx.closePath();
+  }
+
+  function truncateText(ctx, text, maxWidth) {
+    const source = String(text || "");
+    if (ctx.measureText(source).width <= maxWidth) return source;
+    let out = source;
+    while (out.length > 4 && ctx.measureText(`${out}...`).width > maxWidth) out = out.slice(0, -1);
+    return `${out}...`;
+  }
+
+  function pdfModeLabel(mode) {
+    if (mode === "answers") return "Đề + đáp án";
+    if (mode === "review") return "Phiếu ôn tập";
+    return "Đề thi gọn";
+  }
+
   function renderAbout() {
     return `
       <section class="screen">
-        ${screenHeader("Giới thiệu", "KQuiz Web ${APP_VERSION}", "", "tools-hub")}
+        ${screenHeader("Giới thiệu", `KQuiz Web ${APP_VERSION}`, "", "tools-hub")}
         <div class="hero-card"><h2>KQuiz</h2><p>App học quiz thông minh, offline-first, tạo câu hỏi từ file, ảnh, PDF và bộ học.</p></div>
         <div class="section card pad">
           <h2>Theme màu nhẹ</h2>
@@ -2642,15 +3324,29 @@
   }
 
   async function saveAdsSettings() {
+    const placements = { ...defaultSettings.ads.placements };
+    $$("[data-ad-placement]").forEach((input) => {
+      placements[input.dataset.adPlacement] = input.checked;
+    });
     const ads = {
       enabled: Boolean($("#adsEnabled")?.checked),
       networkCode: normalizeText($("#adsNetworkCode")?.value || ""),
       adUnitPath: normalizeText($("#adsAdUnitPath")?.value || ""),
+      bannerEnabled: Boolean($("#adsBannerEnabled")?.checked),
+      bannerAdUnitPath: normalizeText($("#adsBannerAdUnitPath")?.value || ""),
+      bannerSizes: normalizeText($("#adsBannerSizes")?.value || "320x50,300x250"),
+      collapseEmptyDivs: Boolean($("#adsCollapseEmpty")?.checked),
+      centerAds: Boolean($("#adsCenter")?.checked),
+      placements,
       timeoutMs: 15000
     };
     await saveSettings({ ads });
-    toast("Đã lưu cấu hình rewarded ads.", "success");
+    toast("Đã lưu cấu hình quảng cáo.", "success");
     render();
+  }
+
+  function refreshAds() {
+    saveAdsSettings();
   }
 
   function showDonate() {
@@ -2664,13 +3360,24 @@
 
   function showAudioSettings() {
     const effects = state.settings.effects || defaultSettings.effects;
+    const effectLabels = {
+      select: "Chọn",
+      flip: "Lật thẻ",
+      correct: "Đúng",
+      wrong: "Sai",
+      complete: "Hoàn thành"
+    };
     openModal(`
-      <h2>Cài đặt âm thanh</h2>
+      <h2>Âm thanh & hiệu ứng</h2>
       <label class="option-card"><input type="checkbox" id="voiceEnabled" ${state.settings.voiceEnabled ? "checked" : ""}> Giọng đọc TTS</label>
       <label class="option-card"><input type="checkbox" id="sfxEnabled" ${state.settings.sfxEnabled ? "checked" : ""}> Hiệu ứng âm thanh</label>
+      <label class="option-card"><input type="checkbox" id="motionEnabled" ${state.settings.motionEnabled ? "checked" : ""}> Animation trong app</label>
+      <label class="option-card"><input type="checkbox" id="hapticsEnabled" ${state.settings.hapticsEnabled ? "checked" : ""}> Rung nhẹ khi đúng/sai</label>
+      <label class="option-card"><input type="checkbox" id="celebrationsEnabled" ${state.settings.celebrationsEnabled ? "checked" : ""}> Confetti khi hoàn thành</label>
+      <label class="option-card"><input type="checkbox" id="instantFeedback" ${state.settings.instantFeedback ? "checked" : ""}> Hiện đúng/sai ngay khi bấm đáp án</label>
       <label class="form-row"><span class="field-label">Âm lượng</span><input id="sfxVolume" type="range" min="0" max="1" step="0.05" value="${state.settings.sfxVolume}" class="input"></label>
-      <div class="chip-row" style="flex-wrap:wrap;margin-top:12px">
-        ${Object.keys(effects).map((key) => `<label class="chip"><input type="checkbox" data-effect="${key}" ${effects[key] ? "checked" : ""}> ${key}</label>`).join("")}
+      <div class="chip-row sound-test-grid">
+        ${Object.keys(effectLabels).map((key) => `<label class="chip sound-chip"><input type="checkbox" data-effect="${key}" ${effects[key] ? "checked" : ""}> ${effectLabels[key]} <button class="mini-btn" type="button" onclick="event.preventDefault();event.stopPropagation();KQuiz.testAudio('${key}')">Test</button></label>`).join("")}
       </div>
       <button class="btn primary" style="width:100%;margin-top:16px" onclick="KQuiz.saveAudioSettings()">Xong</button>
     `);
@@ -2683,9 +3390,14 @@
       voiceEnabled: $("#voiceEnabled").checked,
       sfxEnabled: $("#sfxEnabled").checked,
       sfxVolume: Number($("#sfxVolume").value),
+      motionEnabled: $("#motionEnabled").checked,
+      hapticsEnabled: $("#hapticsEnabled").checked,
+      celebrationsEnabled: $("#celebrationsEnabled").checked,
+      instantFeedback: $("#instantFeedback").checked,
       effects
     });
     closeModal();
+    toast("Đã lưu âm thanh & hiệu ứng.", "success");
   }
 
   function configureDailyGoal() {
@@ -2711,20 +3423,94 @@
   }
 
   let audioCtx = null;
+  const sfxPlayers = {};
+
   function play(effect) {
     if (!state.settings.sfxEnabled || state.settings.effects?.[effect] === false) return;
+    const volume = clamp(Number(state.settings.sfxVolume ?? 0.7), 0, 1);
+    const source = SFX[effect];
+    if (source) {
+      try {
+        const base = sfxPlayers[effect] || (sfxPlayers[effect] = new Audio(source));
+        const player = base.cloneNode(true);
+        player.volume = volume;
+        player.play().catch(() => playTone(effect, volume));
+        return;
+      } catch (error) {
+        console.warn("SFX fallback", error);
+      }
+    }
+    playTone(effect, volume);
+  }
+
+  function playTone(effect, volume = 0.7) {
+    if (!window.AudioContext && !window.webkitAudioContext) return;
     audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
     const freq = { correct: 660, wrong: 220, flip: 880, complete: 523, select: 440 }[effect] || 440;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.frequency.value = freq;
     osc.type = effect === "wrong" ? "sawtooth" : "sine";
-    gain.gain.value = 0.08 * (state.settings.sfxVolume ?? 0.7);
+    gain.gain.value = 0.08 * volume;
     osc.connect(gain);
     gain.connect(audioCtx.destination);
     osc.start();
     gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.16);
     osc.stop(audioCtx.currentTime + 0.18);
+  }
+
+  function haptic(effect = "select") {
+    if (!state.settings.hapticsEnabled || !navigator.vibrate) return;
+    const pattern = effect === "wrong" ? [18, 28, 18] : effect === "complete" ? [20, 35, 20] : 12;
+    navigator.vibrate(pattern);
+  }
+
+  function feedbackEffect(correct) {
+    const effect = correct ? "correct" : "wrong";
+    play(effect);
+    haptic(effect);
+  }
+
+  function testAudio(effect) {
+    play(effect);
+    haptic(effect);
+  }
+
+  function celebrate() {
+    if (!state.settings.celebrationsEnabled || !state.settings.motionEnabled || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const burst = document.createElement("div");
+    burst.className = "confetti-burst";
+    const colors = ["#5b6cff", "#14b8a6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6"];
+    for (let i = 0; i < 28; i += 1) {
+      const piece = document.createElement("span");
+      piece.className = "confetti-piece";
+      piece.style.setProperty("--x", `${Math.random() * 220 - 110}px`);
+      piece.style.setProperty("--r", `${Math.random() * 420 - 210}deg`);
+      piece.style.setProperty("--c", colors[i % colors.length]);
+      piece.style.animationDelay = `${Math.random() * 120}ms`;
+      burst.appendChild(piece);
+    }
+    document.body.appendChild(burst);
+    setTimeout(() => burst.remove(), 1500);
+  }
+
+  function initMotionEvents() {
+    document.addEventListener("pointerdown", (event) => {
+      if (!state.settings.motionEnabled || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const target = event.target.closest("button, .action-card, .study-card, .folder-card, .flashcard, .option-card, .study-mode, .banner");
+      if (!target || target.disabled) return;
+      target.classList.remove("is-pressing");
+      void target.offsetWidth;
+      target.classList.add("is-pressing");
+      setTimeout(() => target.classList.remove("is-pressing"), 220);
+      const rect = target.getBoundingClientRect();
+      const ripple = document.createElement("span");
+      ripple.className = "tap-ripple";
+      ripple.style.left = `${event.clientX - rect.left}px`;
+      ripple.style.top = `${event.clientY - rect.top}px`;
+      target.appendChild(ripple);
+      setTimeout(() => ripple.remove(), 520);
+    }, { passive: true });
   }
 
   async function showMixedTestModal() {
@@ -2746,6 +3532,7 @@
 
   async function exportBackup() {
     await loadAll();
+    const tagData = buildBackupTagData();
     const backup = {
       formatVersion: 1,
       appName: "KQuiz",
@@ -2754,7 +3541,9 @@
       flashcards: state.cards,
       quizHistory: state.history,
       folders: state.folders,
-      tags: getAllTags(),
+      tags: tagData.tags,
+      tagLinks: tagData.tagLinks,
+      webTags: getAllTags(),
       settings: state.settings,
       achievements: Object.values(state.achievements),
       adRewards: state.adRewards
@@ -2762,18 +3551,122 @@
     downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }), `kquiz-${Date.now()}.kquizbackup`);
   }
 
+  function buildBackupTagData() {
+    const names = getAllTags();
+    const tags = names.map((name, index) => ({
+      id: `tag_${index + 1}_${name.replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+      name,
+      colorHex: "#5b6cff",
+      createdAt: now()
+    }));
+    const tagIdByName = new Map(tags.map((tag) => [tag.name, tag.id]));
+    const tagLinks = [];
+    state.studySets.forEach((set) => {
+      (set.tags || []).forEach((name) => {
+        const tagId = tagIdByName.get(name);
+        if (tagId) tagLinks.push({ studySetId: set.id, tagId });
+      });
+    });
+    return { tags, tagLinks };
+  }
+
   async function handleBackupInput(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const data = JSON.parse(await file.text());
-    for (const set of data.studySets || []) await dbPut("studySets", { ...set, id: set.id || uid("set") });
-    for (const card of data.flashcards || []) await dbPut("flashcards", { ...card, id: card.id || uid("card") });
-    for (const item of data.quizHistory || []) await dbPut("quizHistory", { ...item, id: item.id || uid("hist") });
-    for (const folder of data.folders || []) await dbPut("folders", { ...folder, id: folder.id || uid("folder") });
-    for (const reward of data.adRewards || []) await dbPut("adRewards", { ...reward, id: reward.id || uid("reward") });
-    if (data.settings) await saveSettings({ ...state.settings, ...data.settings });
-    toast("Đã khôi phục dữ liệu, không xóa dữ liệu cũ.", "success");
-    render();
+    try {
+      const data = JSON.parse(await file.text());
+      const setIdMap = new Map();
+      const folderIdMap = new Map();
+      const tagNameById = new Map();
+      const idKey = (value, fallbackPrefix) => value === undefined || value === null || value === "" ? uid(fallbackPrefix) : String(value);
+      const existingSetIds = new Set((await dbGetAll("studySets")).map((item) => String(item.id)));
+      const existingCardIds = new Set((await dbGetAll("flashcards")).map((item) => String(item.id)));
+      const existingFolderIds = new Set((await dbGetAll("folders")).map((item) => String(item.id)));
+      const existingHistoryIds = new Set((await dbGetAll("quizHistory")).map((item) => String(item.id)));
+      const existingRewardIds = new Set((await dbGetAll("adRewards")).map((item) => String(item.id)));
+      const existingAchievementIds = new Set((await dbGetAll("achievements")).map((item) => String(item.id)));
+
+      for (const tag of data.tags || []) {
+        if (typeof tag === "string") tagNameById.set(tag, tag);
+        else if (tag?.name) tagNameById.set(String(tag.id ?? tag.name), tag.name);
+      }
+
+      for (const folder of data.folders || []) {
+        const oldId = idKey(folder.id, "folder_old");
+        const id = !existingFolderIds.has(oldId) ? oldId : uid("folder");
+        existingFolderIds.add(id);
+        folderIdMap.set(oldId, id);
+        await dbPut("folders", { ...folder, id, createdAt: folder.createdAt || now() });
+      }
+
+      for (const set of data.studySets || []) {
+        const oldId = idKey(set.id, "set_old");
+        const id = !existingSetIds.has(oldId) ? oldId : uid("set");
+        existingSetIds.add(id);
+        setIdMap.set(oldId, id);
+        await dbPut("studySets", {
+          ...set,
+          id,
+          folderId: set.folderId === undefined || set.folderId === null ? null : (folderIdMap.get(String(set.folderId)) || String(set.folderId)),
+          createdAt: set.createdAt || now(),
+          updatedAt: now()
+        });
+      }
+
+      for (const card of data.flashcards || []) {
+        const oldId = idKey(card.id, "card_old");
+        const id = !existingCardIds.has(oldId) ? oldId : uid("card");
+        existingCardIds.add(id);
+        await dbPut("flashcards", {
+          ...card,
+          id,
+          studySetId: card.studySetId === undefined || card.studySetId === null ? card.studySetId : (setIdMap.get(String(card.studySetId)) || String(card.studySetId)),
+          choices: normalizeChoices(card.choices),
+          createdAt: card.createdAt || now()
+        });
+      }
+
+      for (const link of data.tagLinks || []) {
+        const setId = setIdMap.get(String(link.studySetId)) || String(link.studySetId);
+        const tagName = tagNameById.get(String(link.tagId));
+        if (!setId || !tagName) continue;
+        const set = await dbGet("studySets", setId);
+        if (!set) continue;
+        set.tags = [...new Set([...(set.tags || []), tagName])];
+        set.updatedAt = now();
+        await dbPut("studySets", set);
+      }
+
+      for (const item of data.quizHistory || []) {
+        const oldId = idKey(item.id, "hist_old");
+        const id = !existingHistoryIds.has(oldId) ? oldId : uid("hist");
+        existingHistoryIds.add(id);
+        await dbPut("quizHistory", { ...item, id, createdAt: item.createdAt || now() });
+      }
+
+      for (const achievement of data.achievements || []) {
+        const oldId = idKey(achievement.id, "ach_old");
+        const id = !existingAchievementIds.has(oldId) ? oldId : uid("ach");
+        existingAchievementIds.add(id);
+        await dbPut("achievements", { ...achievement, id, unlockedAt: achievement.unlockedAt || now() });
+      }
+
+      for (const reward of data.adRewards || []) {
+        const oldId = idKey(reward.id, "reward_old");
+        const id = !existingRewardIds.has(oldId) ? oldId : uid("reward");
+        existingRewardIds.add(id);
+        await dbPut("adRewards", { ...reward, id });
+      }
+
+      if (data.settings) await saveSettings({ ...state.settings, ...data.settings });
+      toast("Đã khôi phục dữ liệu, không xóa hoặc ghi đè dữ liệu cũ.", "success");
+      render();
+    } catch (error) {
+      console.warn(error);
+      toast("File backup không hợp lệ.", "error");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   function downloadBlob(blob, fileName) {
@@ -2809,7 +3702,7 @@
   }
 
   async function init() {
-    state.modules.shell = await import("./modules/app-shell.js");
+    state.modules.shell = await import(`./modules/app-shell.js?v=${APP_VERSION}`);
     await initDB();
     await seedIfNeeded();
     await loadAll();
@@ -2817,6 +3710,7 @@
     if ("serviceWorker" in navigator && !isLocalPreview) {
       navigator.serviceWorker.register("./sw.js").catch((error) => console.warn("SW register failed", error));
     }
+    initMotionEvents();
     window.addEventListener("hashchange", render);
     await render();
   }
@@ -2827,10 +3721,14 @@
     showImportNotice,
     showAudioSettings,
     saveAudioSettings,
+    testAudio,
     configureDailyGoal,
     setDailyGoal,
     setQuickType,
+    setQuickPromptType,
+    updatePromptQuestionCount,
     copyPrompt,
+    insertPromptExample,
     createStudySetFromQuick,
     setImportMode,
     processSelectedFile,
@@ -2875,11 +3773,13 @@
     saveCard,
     deleteCard,
     showSetMenu,
+    showExportMenu,
     exportStudySet,
     showQr,
     copyText,
     startQrScanner,
     stopQrScanner,
+    importStudySetFromText,
     clearImportPreview,
     confirmImportStudySet,
     setSmartScanMode,
@@ -2902,6 +3802,7 @@
     setTheme,
     saveAiEndpoint,
     saveAdsSettings,
+    refreshAds,
     confirmRewardedUnlock,
     showDonate,
     exportBackup,
