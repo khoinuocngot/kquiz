@@ -3,7 +3,7 @@
 (() => {
   const DB_NAME = "kquiz_web_full_v1";
   const DB_VERSION = 2;
-  const APP_VERSION = "web-1.3.9";
+  const APP_VERSION = "web-1.3.10";
   const ADSENSE_CLIENT = "ca-pub-5420595752844109";
   const ADSENSE_APPROVED_DATE = "2026-04-25";
   const AI_PRO_ENDPOINT = "";
@@ -4100,7 +4100,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     await handleSharedLaunch();
     const isLocalPreview = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
     if ("serviceWorker" in navigator && !isLocalPreview) {
-      navigator.serviceWorker.register("./sw.js").catch((error) => console.warn("SW register failed", error));
+      navigator.serviceWorker.register("./sw.js").then((registration) => registration.update()).catch((error) => console.warn("SW register failed", error));
     }
     initMotionEvents();
     window.addEventListener("hashchange", render);

@@ -1,4 +1,4 @@
-const CACHE_NAME = "kquiz-web-v15";
+const CACHE_NAME = "kquiz-web-v16";
 const SHARE_CACHE = "kquiz-share-v1";
 const SHARE_PAYLOAD_URL = new URL("./shared-payload", self.location.href).href;
 const CORE_ASSETS = [
@@ -86,15 +86,34 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   if (url.origin !== self.location.origin) return;
 
+  const isAppShellAsset =
+    event.request.mode === "navigate" ||
+    url.pathname.endsWith("/") ||
+    url.pathname.endsWith("/index.html") ||
+    url.pathname.endsWith("/app.js") ||
+    url.pathname.endsWith("/styles.css") ||
+    url.pathname.includes("/modules/");
+
   event.respondWith(
-    caches.match(event.request, { ignoreSearch: true }).then((cached) => {
+    (async () => {
+      const cached = await caches.match(event.request, { ignoreSearch: true });
+      if (isAppShellAsset) {
+        try {
+          const response = await fetch(event.request, { cache: "no-store" });
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        } catch {
+          if (cached) return cached;
+          throw new Error("KQuiz offline cache missing");
+        }
+      }
       if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return response;
-      });
-    })
+      const response = await fetch(event.request);
+      const copy = response.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+      return response;
+    })()
   );
 });
 
