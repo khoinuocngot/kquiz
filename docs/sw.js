@@ -1,9 +1,10 @@
-const CACHE_NAME = "kquiz-web-v16";
+const CACHE_NAME = "kquiz-web-v17";
 const SHARE_CACHE = "kquiz-share-v1";
 const SHARE_PAYLOAD_URL = new URL("./shared-payload", self.location.href).href;
 const CORE_ASSETS = [
   "./",
   "./index.html",
+  "./reset.html",
   "./styles.css",
   "./app.js",
   "./modules/app-shell.js",
@@ -90,6 +91,7 @@ self.addEventListener("fetch", (event) => {
     event.request.mode === "navigate" ||
     url.pathname.endsWith("/") ||
     url.pathname.endsWith("/index.html") ||
+    url.pathname.endsWith("/reset.html") ||
     url.pathname.endsWith("/app.js") ||
     url.pathname.endsWith("/styles.css") ||
     url.pathname.includes("/modules/");

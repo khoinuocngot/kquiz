@@ -3,7 +3,7 @@
 (() => {
   const DB_NAME = "kquiz_web_full_v1";
   const DB_VERSION = 2;
-  const APP_VERSION = "web-1.3.10";
+  const APP_VERSION = "web-1.3.11";
   const ADSENSE_CLIENT = "ca-pub-5420595752844109";
   const ADSENSE_APPROVED_DATE = "2026-04-25";
   const AI_PRO_ENDPOINT = "";
