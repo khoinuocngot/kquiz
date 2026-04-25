@@ -3,7 +3,7 @@
 (() => {
   const DB_NAME = "kquiz_web_full_v1";
   const DB_VERSION = 2;
-  const APP_VERSION = "web-1.3.11";
+  const APP_VERSION = "web-1.3.12";
   const ADSENSE_CLIENT = "ca-pub-5420595752844109";
   const ADSENSE_APPROVED_DATE = "2026-04-25";
   const AI_PRO_ENDPOINT = "";
@@ -1757,7 +1757,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       <h2>${escapeHtml(featureInfo.label || label)}</h2>
       <p>${escapeHtml(featureInfo.description || "Tính năng Pro yêu cầu xem quảng cáo có tặng thưởng.")}</p>
       <div class="card pad" style="background:var(--info-soft);box-shadow:none">
-        Pro chỉ mở khi Google Ad Manager gửi sự kiện reward. Nếu quảng cáo không sẵn sàng hoặc bạn đóng quảng cáo, tính năng sẽ không được mở.
+        Pro chỉ mở khi quảng cáo có thưởng sẵn sàng và bạn xem đủ điều kiện. Nếu quảng cáo chưa có hoặc bạn đóng giữa chừng, tính năng sẽ chưa được mở.
       </div>
       <div class="btn-row" style="margin-top:16px">
         <button class="btn" onclick="KQuiz.closeModal()">Để sau</button>
@@ -1776,7 +1776,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       toast("Đang gọi quảng cáo rewarded...", "warning");
       const result = await requestRewardedAd(adsConfig, { feature: pending.feature, targetKey: pending.targetKey });
       if (!result.granted) {
-        toast(result.reason === "missing-config" ? "Chưa cấu hình Ad Manager rewarded." : "Chưa nhận reward, tính năng chưa mở.", "warning");
+        toast(result.reason === "missing-config" ? "Quảng cáo có thưởng chưa sẵn sàng, hãy thử lại sau." : "Chưa hoàn tất quảng cáo, tính năng chưa mở.", "warning");
         return;
       }
       await recordAdReward(pending.feature, pending.targetKey, result);
@@ -1787,7 +1787,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       await action();
     } catch (error) {
       console.error(error);
-      toast("Không tải được quảng cáo rewarded.", "error");
+      toast("Không tải được quảng cáo có thưởng.", "error");
     }
   }
 
@@ -3511,7 +3511,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
         </div>
         <div class="section card pad">
           <h2>Quảng cáo</h2>
-          <p class="small-text">AdSense Auto ads hiển thị theo chính sách Google. Pro unlock chỉ dùng Google Ad Manager rewarded thật; app không tự mở khóa bằng click hay impression giả.</p>
+          <p class="small-text">AdSense Auto ads hiển thị theo chính sách Google. Pro unlock chỉ mở khi hệ thống quảng cáo có thưởng trả reward thật; app không tự mở khóa bằng click hay impression giả.</p>
         </div>
         <div class="section card pad">
           <h2>Thông báo</h2>
