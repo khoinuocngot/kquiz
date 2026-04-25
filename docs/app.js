@@ -3,7 +3,11 @@
 (() => {
   const DB_NAME = "kquiz_web_full_v1";
   const DB_VERSION = 2;
-  const APP_VERSION = "web-1.3.6";
+  const APP_VERSION = "web-1.3.7";
+  const ADSENSE_CLIENT = "ca-pub-5420595752844109";
+  const ADSENSE_ROOT_URL = "https://khoinuocngot.github.io/";
+  const ADSENSE_APP_URL = "https://khoinuocngot.github.io/kquiz/";
+  const ADSENSE_APPROVED_DATE = "2026-04-25";
   const STORE_NAMES = [
     "studySets",
     "flashcards",
@@ -46,6 +50,10 @@
     },
     aiEndpoint: "",
     ads: {
+      adsenseClient: ADSENSE_CLIENT,
+      adsenseApproved: true,
+      autoAdsEnabled: true,
+      approvalDate: ADSENSE_APPROVED_DATE,
       enabled: false,
       networkCode: "",
       adUnitPath: "",
@@ -513,6 +521,10 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       },
       reminders: { ...defaultSettings.reminders, ...(saved.reminders || {}) }
     };
+    state.settings.ads.adsenseClient = ADSENSE_CLIENT;
+    state.settings.ads.adsenseApproved = true;
+    state.settings.ads.autoAdsEnabled = true;
+    state.settings.ads.approvalDate = state.settings.ads.approvalDate || ADSENSE_APPROVED_DATE;
     state.studySets = (await dbGetAll("studySets")).sort(sortStudySets);
     state.cards = await dbGetAll("flashcards");
     state.folders = (await dbGetAll("folders")).sort((a, b) => b.createdAt - a.createdAt);
@@ -881,6 +893,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
 
   function renderToolsHub() {
     const ads = state.settings.ads || defaultSettings.ads;
+    const adsenseActive = ads.adsenseApproved && ads.autoAdsEnabled;
     const rewardedReady = ads.enabled && Boolean(ads.adUnitPath || ads.networkCode);
     const bannerReady = ads.enabled && ads.bannerEnabled && Boolean(ads.bannerAdUnitPath || ads.adUnitPath);
     const placements = { ...defaultSettings.ads.placements, ...(ads.placements || {}) };
@@ -928,6 +941,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
             <button class="btn secondary" onclick="KQuiz.testAiEndpoint()">Test AI</button>
           </div>
         </div>
+        ${adsenseStatusCard(ads, adsenseActive)}
         <div class="section card pad">
           <h2>Rewarded Ads Web</h2>
           <p class="small-text">${rewardedReady ? "Đã có cấu hình rewarded. Pro chỉ mở sau khi Google Ad Manager gửi reward." : "Chưa có rewarded ad unit. Pro sẽ không unlock cho tới khi cấu hình Ad Manager."}</p>
@@ -959,6 +973,34 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
         <button class="action-card wide" style="width:100%;margin-top:28px" onclick="KQuiz.navigate('privacy')"><span class="glyph">${icons.info}</span><span><strong>Privacy & consent</strong><span>Dữ liệu local, AI proxy, quảng cáo và thông báo</span></span></button>
         <button class="action-card wide" style="width:100%;margin-top:12px" onclick="KQuiz.navigate('about')"><span class="glyph">${icons.info}</span><span><strong>Giới thiệu</strong><span>Thông tin app và ủng hộ KQuiz</span></span></button>
       </section>
+    `;
+  }
+
+  function adsenseStatusCard(ads, active) {
+    const approvalDate = escapeHtml(ads.approvalDate || ADSENSE_APPROVED_DATE);
+    const client = escapeHtml(ads.adsenseClient || ADSENSE_CLIENT);
+    const status = active ? "Đang kiếm tiền bằng Auto Ads" : "Auto Ads đang tắt trong app";
+    const detail = active
+      ? "AdSense đã duyệt site. Script Auto Ads đang được gắn trong <head>, Google sẽ tự chọn vị trí hợp lệ sau khi có lượt truy cập thật."
+      : "AdSense đã duyệt, nhưng bạn đang tắt Auto Ads trong cài đặt web. Bật lại để Google tự hiển thị quảng cáo hợp lệ.";
+    return `
+      <div class="section card pad monetization-card">
+        <div class="section-head">
+          <h2>AdSense đã duyệt</h2>
+          <span class="status-pill ${active ? "success" : "warning"}">${escapeHtml(status)}</span>
+        </div>
+        <p class="small-text">${escapeHtml(detail)}</p>
+        <div class="study-stat-grid">
+          <div><span>Publisher</span><strong>${client}</strong></div>
+          <div><span>Ngày cập nhật</span><strong>${approvalDate}</strong></div>
+          <div><span>ads.txt</span><strong>Đã có ở domain gốc</strong></div>
+        </div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn primary" onclick="KQuiz.saveAdsSettings()">Lưu trạng thái ads</button>
+          <button class="btn secondary" onclick="KQuiz.copyText('${ADSENSE_APP_URL}')">Copy link web</button>
+          <button class="btn secondary" onclick="KQuiz.copyText('${ADSENSE_ROOT_URL}ads.txt')">Copy ads.txt</button>
+        </div>
+      </div>
     `;
   }
 
@@ -3663,6 +3705,10 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
       placements[input.dataset.adPlacement] = input.checked;
     });
     const ads = {
+      adsenseClient: ADSENSE_CLIENT,
+      adsenseApproved: true,
+      autoAdsEnabled: Boolean($("#adsAutoAdsEnabled")?.checked ?? true),
+      approvalDate: ADSENSE_APPROVED_DATE,
       enabled: Boolean($("#adsEnabled")?.checked),
       networkCode: normalizeText($("#adsNetworkCode")?.value || ""),
       adUnitPath: normalizeText($("#adsAdUnitPath")?.value || ""),

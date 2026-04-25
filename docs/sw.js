@@ -1,4 +1,4 @@
-const CACHE_NAME = "kquiz-web-v13";
+const CACHE_NAME = "kquiz-web-v14";
 const SHARE_CACHE = "kquiz-share-v1";
 const SHARE_PAYLOAD_URL = new URL("./shared-payload", self.location.href).href;
 const CORE_ASSETS = [
