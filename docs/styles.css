@@ -549,38 +549,6 @@ a {
   overflow-wrap: anywhere;
 }
 
-.status-pill {
-  flex: 0 0 auto;
-  padding: 7px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--surface-soft);
-  color: var(--text-soft);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.status-pill.success {
-  border-color: rgba(34, 197, 94, 0.28);
-  background: rgba(34, 197, 94, 0.11);
-  color: #15803d;
-}
-
-.status-pill.warning {
-  border-color: rgba(245, 158, 11, 0.3);
-  background: var(--warning-soft);
-  color: #9a5f00;
-}
-
-.monetization-card .section-head {
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.monetization-card .study-stat-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
 .card-meta-row {
   display: flex;
   flex-wrap: wrap;

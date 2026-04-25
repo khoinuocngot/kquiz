@@ -3,11 +3,10 @@
 (() => {
   const DB_NAME = "kquiz_web_full_v1";
   const DB_VERSION = 2;
-  const APP_VERSION = "web-1.3.7";
+  const APP_VERSION = "web-1.3.9";
   const ADSENSE_CLIENT = "ca-pub-5420595752844109";
-  const ADSENSE_ROOT_URL = "https://khoinuocngot.github.io/";
-  const ADSENSE_APP_URL = "https://khoinuocngot.github.io/kquiz/";
   const ADSENSE_APPROVED_DATE = "2026-04-25";
+  const AI_PRO_ENDPOINT = "";
   const STORE_NAMES = [
     "studySets",
     "flashcards",
@@ -48,7 +47,7 @@
       complete: true,
       select: true
     },
-    aiEndpoint: "",
+    aiEndpoint: AI_PRO_ENDPOINT,
     ads: {
       adsenseClient: ADSENSE_CLIENT,
       adsenseApproved: true,
@@ -525,6 +524,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     state.settings.ads.adsenseApproved = true;
     state.settings.ads.autoAdsEnabled = true;
     state.settings.ads.approvalDate = state.settings.ads.approvalDate || ADSENSE_APPROVED_DATE;
+    state.settings.aiEndpoint = AI_PRO_ENDPOINT;
     state.studySets = (await dbGetAll("studySets")).sort(sortStudySets);
     state.cards = await dbGetAll("flashcards");
     state.folders = (await dbGetAll("folders")).sort((a, b) => b.createdAt - a.createdAt);
@@ -834,7 +834,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
             ${actionCard("Tạo", "Nhập nhanh, file, scan", icons.plus, "KQuiz.navigate('create-hub')")}
             ${actionCard("Học", "Bộ học, folder, tag", icons.learn, "KQuiz.navigate('study-hub')","secondary")}
             ${actionCard("Ôn", "Smart Review, test, lịch sử", icons.spark, "KQuiz.navigate('review-hub')","warning")}
-            ${actionCard("Công cụ", "Backup, theme, ads, AI", icons.gear, "KQuiz.navigate('tools-hub')")}
+            ${actionCard("Công cụ", "Backup, theme, PWA", icons.gear, "KQuiz.navigate('tools-hub')")}
           </div>
         </div>
       </section>
@@ -892,14 +892,9 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   }
 
   function renderToolsHub() {
-    const ads = state.settings.ads || defaultSettings.ads;
-    const adsenseActive = ads.adsenseApproved && ads.autoAdsEnabled;
-    const rewardedReady = ads.enabled && Boolean(ads.adUnitPath || ads.networkCode);
-    const bannerReady = ads.enabled && ads.bannerEnabled && Boolean(ads.bannerAdUnitPath || ads.adUnitPath);
-    const placements = { ...defaultSettings.ads.placements, ...(ads.placements || {}) };
     return `
       <section class="screen">
-        ${screenHeader("Công cụ", "Backup, theme, ads, AI", "", "home")}
+        ${screenHeader("Công cụ", "Backup, theme, PWA", "", "home")}
         <div class="section card pad">
           <h2>Dữ liệu</h2>
           <div class="btn-row" style="margin-top:12px">
@@ -932,80 +927,10 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
             <button class="btn secondary" onclick="KQuiz.checkPwaShareTarget()">${icons.upload} Kiểm tra share</button>
           </div>
         </div>
-        <div class="section card pad">
-          <h2>AI Pro endpoint</h2>
-          <p class="small-text">Không lưu API key trong frontend. Chỉ nhập URL proxy hợp lệ.</p>
-          <input id="aiEndpoint" class="input" value="${escapeHtml(state.settings.aiEndpoint || "")}" placeholder="https://your-worker.workers.dev">
-          <div class="btn-row" style="margin-top:12px">
-            <button class="btn primary" onclick="KQuiz.saveAiEndpoint()">Lưu endpoint</button>
-            <button class="btn secondary" onclick="KQuiz.testAiEndpoint()">Test AI</button>
-          </div>
-        </div>
-        ${adsenseStatusCard(ads, adsenseActive)}
-        <div class="section card pad">
-          <h2>Rewarded Ads Web</h2>
-          <p class="small-text">${rewardedReady ? "Đã có cấu hình rewarded. Pro chỉ mở sau khi Google Ad Manager gửi reward." : "Chưa có rewarded ad unit. Pro sẽ không unlock cho tới khi cấu hình Ad Manager."}</p>
-          <label class="option-card"><input id="adsEnabled" type="checkbox" ${ads.enabled ? "checked" : ""}> Bật Google Publisher Tag / Ad Manager</label>
-          <label class="form-row"><span class="field-label">Network code</span><input id="adsNetworkCode" class="input" value="${escapeHtml(ads.networkCode || "")}" placeholder="1234567"></label>
-          <label class="form-row"><span class="field-label">Rewarded ad unit path</span><input id="adsAdUnitPath" class="input" value="${escapeHtml(ads.adUnitPath || "")}" placeholder="/1234567/kquiz_rewarded"></label>
-        </div>
-        <div class="section card pad">
-          <h2>Banner Ads Web</h2>
-          <p class="small-text">${bannerReady ? "Banner sẽ hiển thị ở Home, hub và màn kết quả theo placement đã bật." : "Nhập banner ad unit riêng để hiện quảng cáo trong app web."}</p>
-          <label class="option-card"><input id="adsBannerEnabled" type="checkbox" ${ads.bannerEnabled ? "checked" : ""}> Bật banner ads</label>
-          <label class="form-row"><span class="field-label">Banner ad unit path</span><input id="adsBannerAdUnitPath" class="input" value="${escapeHtml(ads.bannerAdUnitPath || "")}" placeholder="/1234567/kquiz_banner"></label>
-          <label class="form-row"><span class="field-label">Kích thước</span><input id="adsBannerSizes" class="input" value="${escapeHtml(ads.bannerSizes || "320x50,300x250")}" placeholder="320x50,300x250"></label>
-          <label class="option-card"><input id="adsCollapseEmpty" type="checkbox" ${ads.collapseEmptyDivs !== false ? "checked" : ""}> Tự thu gọn khi không có quảng cáo</label>
-          <label class="option-card"><input id="adsCenter" type="checkbox" ${ads.centerAds !== false ? "checked" : ""}> Căn giữa quảng cáo</label>
-          <div class="chip-row" style="margin-top:12px">
-            ${adPlacementChip("home", "Home", placements.home)}
-            ${adPlacementChip("study", "Học", placements.study)}
-            ${adPlacementChip("review", "Ôn", placements.review)}
-            ${adPlacementChip("tools", "Công cụ", placements.tools)}
-            ${adPlacementChip("result", "Kết quả", placements.result)}
-          </div>
-          <div class="btn-row" style="margin-top:12px">
-            <button class="btn primary" onclick="KQuiz.saveAdsSettings()">Lưu ads</button>
-            <button class="btn secondary" onclick="KQuiz.refreshAds()">Tải thử banner</button>
-          </div>
-        </div>
-        ${adSlotHtml("tools-preview")}
         <button class="action-card wide" style="width:100%;margin-top:28px" onclick="KQuiz.navigate('privacy')"><span class="glyph">${icons.info}</span><span><strong>Privacy & consent</strong><span>Dữ liệu local, AI proxy, quảng cáo và thông báo</span></span></button>
         <button class="action-card wide" style="width:100%;margin-top:12px" onclick="KQuiz.navigate('about')"><span class="glyph">${icons.info}</span><span><strong>Giới thiệu</strong><span>Thông tin app và ủng hộ KQuiz</span></span></button>
       </section>
     `;
-  }
-
-  function adsenseStatusCard(ads, active) {
-    const approvalDate = escapeHtml(ads.approvalDate || ADSENSE_APPROVED_DATE);
-    const client = escapeHtml(ads.adsenseClient || ADSENSE_CLIENT);
-    const status = active ? "Đang kiếm tiền bằng Auto Ads" : "Auto Ads đang tắt trong app";
-    const detail = active
-      ? "AdSense đã duyệt site. Script Auto Ads đang được gắn trong <head>, Google sẽ tự chọn vị trí hợp lệ sau khi có lượt truy cập thật."
-      : "AdSense đã duyệt, nhưng bạn đang tắt Auto Ads trong cài đặt web. Bật lại để Google tự hiển thị quảng cáo hợp lệ.";
-    return `
-      <div class="section card pad monetization-card">
-        <div class="section-head">
-          <h2>AdSense đã duyệt</h2>
-          <span class="status-pill ${active ? "success" : "warning"}">${escapeHtml(status)}</span>
-        </div>
-        <p class="small-text">${escapeHtml(detail)}</p>
-        <div class="study-stat-grid">
-          <div><span>Publisher</span><strong>${client}</strong></div>
-          <div><span>Ngày cập nhật</span><strong>${approvalDate}</strong></div>
-          <div><span>ads.txt</span><strong>Đã có ở domain gốc</strong></div>
-        </div>
-        <div class="btn-row" style="margin-top:12px">
-          <button class="btn primary" onclick="KQuiz.saveAdsSettings()">Lưu trạng thái ads</button>
-          <button class="btn secondary" onclick="KQuiz.copyText('${ADSENSE_APP_URL}')">Copy link web</button>
-          <button class="btn secondary" onclick="KQuiz.copyText('${ADSENSE_ROOT_URL}ads.txt')">Copy ads.txt</button>
-        </div>
-      </div>
-    `;
-  }
-
-  function adPlacementChip(key, label, checked) {
-    return `<label class="chip check-chip"><input type="checkbox" data-ad-placement="${key}" ${checked !== false ? "checked" : ""}>${escapeHtml(label)}</label>`;
   }
 
   function actionCard(title, sub, icon, handler, kind = "") {
@@ -1749,7 +1674,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
           <div class="list" style="margin-top:14px">
             ${importModeCard("FREE", "Miễn phí", "Nhanh, offline, phù hợp file rõ.")}
             ${importModeCard("STANDARD", "Chuẩn", "OCR kỹ hơn, vẫn không cần cloud AI.")}
-            ${importModeCard("AI_PRO", "AI Pro", "Dùng AI qua proxy endpoint, lỗi thì fallback local.")}
+            ${importModeCard("AI_PRO", "AI Pro", "Dùng AI qua backend bảo mật, lỗi thì fallback local.")}
           </div>
         </div>
         <div class="section">
@@ -3582,11 +3507,7 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
         </div>
         <div class="section card pad">
           <h2>AI Pro</h2>
-          <p class="small-text">Frontend không nhúng API key. Chỉ khi bạn bật AI Pro và cấu hình endpoint, nội dung file mới được gửi tới proxy bạn nhập để tạo câu hỏi. Nếu proxy lỗi, app fallback local.</p>
-          <div class="btn-row" style="margin-top:12px">
-            <button class="btn secondary" onclick="KQuiz.navigate('tools-hub')">Cấu hình AI</button>
-            <button class="btn" onclick="KQuiz.testAiEndpoint()">Test endpoint</button>
-          </div>
+          <p class="small-text">Frontend không nhúng API key và không cho người dùng chỉnh endpoint. Khi AI Pro được bật bởi cấu hình nội bộ, nội dung file mới được gửi tới backend bảo mật; nếu backend lỗi, app fallback local.</p>
         </div>
         <div class="section card pad">
           <h2>Quảng cáo</h2>
@@ -3621,15 +3542,6 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
             ${["IndexedDB","PDF.js","Tesseract.js","pdf-lib","QR Share","PWA Share Target","Notification","Web Speech"].map((x) => `<span class="chip">${x}</span>`).join("")}
           </div>
         </div>
-        <div class="section card pad">
-          <h2>AI Pro endpoint</h2>
-          <p class="small-text">Không lưu API key trong frontend. Nhập URL proxy nếu đã deploy backend hợp lệ.</p>
-          <input id="aiEndpoint" class="input" value="${escapeHtml(state.settings.aiEndpoint || "")}" placeholder="https://your-worker.workers.dev">
-          <div class="btn-row" style="margin-top:12px">
-            <button class="btn primary" onclick="KQuiz.saveAiEndpoint()">Lưu endpoint</button>
-            <button class="btn secondary" onclick="KQuiz.testAiEndpoint()">Test AI</button>
-          </div>
-        </div>
         <button class="action-card wide" style="width:100%;margin-top:28px" onclick="KQuiz.navigate('privacy')"><span class="glyph">${icons.info}</span><span><strong>Privacy & consent</strong><span>Dữ liệu local, AI proxy, quảng cáo và thông báo</span></span></button>
         <button class="action-card wide" style="width:100%;margin-top:12px" onclick="KQuiz.showDonate()"><span class="glyph">${icons.qr}</span><span><strong>Ủng hộ KQuiz</strong><span>Mở thông tin MBank và mã QR</span></span></button>
       </section>
@@ -3643,90 +3555,6 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
   async function setTheme(theme) {
     await saveSettings({ theme });
     render();
-  }
-
-  async function saveAiEndpoint() {
-    await saveSettings({ aiEndpoint: $("#aiEndpoint").value.trim() });
-    toast("Đã lưu endpoint.", "success");
-  }
-
-  async function testAiEndpoint() {
-    const endpoint = ($("#aiEndpoint")?.value || state.settings.aiEndpoint || "").trim().replace(/\/$/, "");
-    if (!endpoint) return toast("Chưa nhập AI proxy endpoint.", "warning");
-    try {
-      await saveSettings({ aiEndpoint: endpoint });
-      const health = await fetch(`${endpoint}/health`, { method: "GET" }).catch(() => null);
-      const healthz = health?.ok ? health : await fetch(`${endpoint}/healthz`, { method: "GET" }).catch(() => null);
-      if (healthz?.ok) {
-        toast("AI proxy health check OK.", "success");
-        return;
-      }
-      const response = await fetch(`${endpoint}/generate-quiz`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: "KQuiz test endpoint. Đây là nội dung mẫu không chứa dữ liệu riêng tư.",
-          count: 1,
-          difficulty: "Dễ",
-          title: "KQuiz endpoint test"
-        })
-      });
-      let data = null;
-      if (response.ok) data = await response.json();
-      if (!normalizeAiQuestions(data?.questions).length) {
-        const legacy = await fetch(`${endpoint}/v1/import/generate-quiz-ai`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            unlockToken: `web-test-${Date.now()}`,
-            cleanedText: "KQuiz test endpoint. Đây là nội dung mẫu không chứa dữ liệu riêng tư.",
-            normalizedBlocks: [],
-            questionCount: 1,
-            difficulty: "Dễ",
-            fileName: "KQuiz endpoint test",
-            documentType: "WEB_TEST",
-            language: "vi"
-          })
-        });
-        if (!legacy.ok) throw new Error(`HTTP ${response.status}/${legacy.status}`);
-        data = await legacy.json();
-      }
-      if (!normalizeAiQuestions(data.questions).length) throw new Error("Response thiếu questions[]");
-      toast("AI proxy tạo quiz OK.", "success");
-    } catch (error) {
-      console.warn(error);
-      toast("AI proxy chưa sẵn sàng hoặc CORS chưa mở.", "error");
-    }
-  }
-
-  async function saveAdsSettings() {
-    const placements = { ...defaultSettings.ads.placements };
-    $$("[data-ad-placement]").forEach((input) => {
-      placements[input.dataset.adPlacement] = input.checked;
-    });
-    const ads = {
-      adsenseClient: ADSENSE_CLIENT,
-      adsenseApproved: true,
-      autoAdsEnabled: Boolean($("#adsAutoAdsEnabled")?.checked ?? true),
-      approvalDate: ADSENSE_APPROVED_DATE,
-      enabled: Boolean($("#adsEnabled")?.checked),
-      networkCode: normalizeText($("#adsNetworkCode")?.value || ""),
-      adUnitPath: normalizeText($("#adsAdUnitPath")?.value || ""),
-      bannerEnabled: Boolean($("#adsBannerEnabled")?.checked),
-      bannerAdUnitPath: normalizeText($("#adsBannerAdUnitPath")?.value || ""),
-      bannerSizes: normalizeText($("#adsBannerSizes")?.value || "320x50,300x250"),
-      collapseEmptyDivs: Boolean($("#adsCollapseEmpty")?.checked),
-      centerAds: Boolean($("#adsCenter")?.checked),
-      placements,
-      timeoutMs: 15000
-    };
-    await saveSettings({ ads });
-    toast("Đã lưu cấu hình quảng cáo.", "success");
-    render();
-  }
-
-  function refreshAds() {
-    saveAdsSettings();
   }
 
   function showDonate() {
@@ -4372,10 +4200,6 @@ Chỉ trả kết quả cuối cùng trong 1 code block duy nhất.`
     bulkDeleteSelectedCards,
     rateSmart,
     setTheme,
-    saveAiEndpoint,
-    testAiEndpoint,
-    saveAdsSettings,
-    refreshAds,
     confirmRewardedUnlock,
     showDonate,
     exportBackup,
